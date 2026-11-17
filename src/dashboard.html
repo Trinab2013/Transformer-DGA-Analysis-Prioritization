@@ -96,6 +96,20 @@ th.r,td.r{text-align:right}
 .pill.P2{background:var(--serious-soft);border-color:var(--serious);color:var(--ink)} .pill.P2 i{color:var(--serious)}
 .pill.P3{background:var(--warning-soft);border-color:var(--warning);color:var(--ink)} .pill.P3 i{color:var(--warning)}
 .pill.P4{background:var(--good-soft);border-color:var(--good);color:var(--ink)} .pill.P4 i{color:var(--good)}
+.tier{display:inline-flex;align-items:center;gap:6px;border-radius:5px;padding:2px 8px 2px 6px;font-size:.76rem;font-weight:700;border:1.5px solid var(--tone);color:var(--ink);background:var(--surface);white-space:nowrap}
+.tier i{font-style:normal;color:var(--tone);font-size:.72rem}
+.tier.t1{--tone:var(--critical)} .tier.t2{--tone:var(--warning)} .tier.t3{--tone:var(--good)}
+.tier.big{font-size:.95rem;padding:5px 12px 5px 9px}
+.filters{display:flex;flex-wrap:wrap;gap:6px}
+.filters button{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:4px 11px;cursor:pointer;font-size:.8rem;font-weight:600}
+.filters button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.repair{border:1.5px solid var(--tone);border-radius:12px;padding:14px 16px;background:var(--surface-2);display:grid;gap:10px;margin-top:16px}
+.repair.t1{--tone:var(--critical)} .repair.t2{--tone:var(--warning)} .repair.t3{--tone:var(--good)}
+.repair-h{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center}
+.repair-h h3{font-size:1.1rem}
+.repair-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr);gap:18px}
+@media (max-width:760px){.repair-cols{grid-template-columns:1fr}}
+.repair ul,.repair ol{margin:0;padding-left:20px;display:grid;gap:5px;font-size:.9rem}
 .chip{display:inline-block;border:1px solid var(--line);border-radius:6px;padding:1px 6px;font-family:var(--font-mono);font-size:.72rem;background:var(--surface-2)}
 .st{font-family:var(--font-mono);font-size:.74rem;font-weight:600}
 .st b{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;vertical-align:0}
@@ -222,7 +236,7 @@ details.method p{margin:6px 0;max-width:68ch}
     <section class="panel">
       <div class="panel-h">
         <h2>Maintenance priority ranking</h2>
-        <span class="note">Click a unit for its diagnosis</span>
+        <div class="filters" id="tier-filter" role="group" aria-label="Filter by tier"></div>
       </div>
       <div class="tbl-wrap"><table id="rank-table"></table></div>
     </section>
@@ -238,7 +252,7 @@ details.method p{margin:6px 0;max-width:68ch}
   <section class="panel ai" id="fleet-ai">
     <div class="panel-h" style="margin:0">
       <h2>Fleet briefing <span class="badge-ai">AI</span></h2>
-      <span class="note">Claude reads the computed results and writes a maintenance briefing</span>
+      <span class="note">Claude reads the computed results and writes a briefing grouped by action tier</span>
     </div>
     <div class="ai-row">
       <button class="btn primary" id="btn-fleet-ai" type="button">Write fleet briefing</button>
@@ -246,7 +260,7 @@ details.method p{margin:6px 0;max-width:68ch}
       <button class="btn" id="btn-fleet-ask" type="button">Ask</button>
       <button class="btn" id="btn-fleet-stop" type="button" hidden>Stop</button>
     </div>
-    <div class="ai-out placeholder" id="fleet-out">The briefing summarizes the ranked fleet, groups units by fault type, and proposes a maintenance sequence.</div>
+    <div class="ai-out placeholder" id="fleet-out">The briefing groups units into Tier 1 replacement, Tier 2 mitigation and Tier 3 no action, gives the repair work for each, and proposes a maintenance sequence.</div>
   </section>
 
   <section class="panel">
@@ -291,6 +305,11 @@ const PRIORITY = {
   P2:{label:'Urgent',icon:'◆',interval:'Resample in 2–4 weeks',tone:'serious'},
   P3:{label:'Planned',icon:'●',interval:'Resample in 3 months',tone:'warning'},
   P4:{label:'Routine',icon:'✓',interval:'Resample in 12 months',tone:'good'}
+};
+const TIERS = {
+  1:{label:'Replacement',short:'Replace',icon:'■',tone:'critical',desc:'Condition is beyond economic repair. Plan replacement and run the unit under interim restrictions.'},
+  2:{label:'Mitigation',short:'Mitigate',icon:'▲',tone:'warning',desc:'A fault or deterioration can be repaired or controlled. Carry out the repair plan and monitor closely.'},
+  3:{label:'No action needed',short:'No action',icon:'✓',tone:'good',desc:'Gas levels are typical and stable. Continue routine sampling only.'}
 };
 const DAY = 86400000;
 const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
@@ -447,12 +466,105 @@ function analyzeUnit(unit, asOf){
   if (o2n2!=null && o2n2>0.2) actions.push('Inspect the conservator bladder and gaskets for air ingress.');
   if (p==='P4') actions.push('No corrective action needed. Continue routine monitoring.');
 
+  // Tier classification
+  const paperSevere = !!(paper && paper.flag && ((co2co!=null && co2co<3) || gas.CO.above95));
+  const severeActive = ['D2','T3'].includes(fault) && status===3 && trend>=40;
+  const tierWhy = [];
+  let tier;
+  if (health<=25 && ((age!=null && age>=35) || paperSevere)){
+    tier=1; tierWhy.push(`Health index ${health} is very low`);
+    if (paperSevere) tierWhy.push('Paper insulation shows severe degradation, which cannot be reversed by repair');
+    if (age!=null && age>=35) tierWhy.push(`Unit is ${age} years old, near the end of a typical 40-year design life`);
+  } else if (severeActive && age!=null && age>=25){
+    tier=1; tierWhy.push(`${FAULTS[fault].name} is active and accelerating`, `At ${age} years old, an internal repair is unlikely to be economic compared with replacement`);
+  } else if (paperSevere && gas.CO.above95 && age!=null && age>=40){
+    tier=1; tierWhy.push('Severe cellulose degradation in a unit over 40 years old');
+  } else if (p==='P4'){
+    tier=3; tierWhy.push(status===1?'All gases are within typical limits':'Gases are slightly elevated but stable', 'No significant rate of increase');
+  } else {
+    tier=2;
+    if (fault) tierWhy.push(`${FAULTS[fault].name} indicated (Duval ${fault}) and judged repairable`);
+    if (paper && paper.flag) tierWhy.push('Cellulose involvement: slow further ageing and confirm with furan testing');
+    if (trend>=40) tierWhy.push('Gas generation is rising: intervene before the fault escalates');
+    if (!tierWhy.length) tierWhy.push(`DGA status ${status}: gases above typical levels need follow-up`);
+    if (age!=null && age<25) tierWhy.push(`At ${age} years old the unit has substantial remaining life worth repairing`);
+  }
+  const repair = repairPlan({tier,fault,gas,paper,paperSevere,o2n2,keyGas,status,trend,p});
+
   return {
+    tier, tierWhy, repair,
     id:unit.id, unit, samples, last, prev, lim, limKind: lim===LIMITS.open?'open':'sealed', o2n2, gas, status,
     tdcg, tdcgCond, duval:dv, iec, fault, faultName: fault?FAULTS[fault].name:(paper&&paper.flag?'Cellulose degradation':'No active fault'),
     paper, keyGas, co2co, cond:Math.round(cond), trend:Math.round(trend), risk:Math.round(risk), score:Math.round(score*10)/10,
     priority:p, health, findings, actions, age, trendX
   };
+}
+function repairPlan(x){
+  const {tier,fault,gas,paper,paperSevere,o2n2,keyGas} = x;
+  const steps = [];
+  if (tier===3){
+    return {headline:'No repair required', steps:['Keep the routine annual DGA sampling schedule.','Re-evaluate if any gas crosses its 90th-percentile limit or starts rising.'], outage:'None'};
+  }
+  if (tier===1){
+    steps.push('Start replacement: confirm with a resample, then budget and order a replacement unit (large power transformers often take 12–24 months to deliver).');
+    steps.push('Assess whether a fleet or mobile spare can cover the site in the meantime.');
+    steps.push('Until replacement: limit loading and hot-spot temperature, increase DGA sampling to monthly (or install online DGA), and set alarm levels.');
+    if (['D1','D2'].includes(fault)) steps.push('Make sure protection (Buchholz/sudden-pressure relay, differential) is in service and tested, given the active discharge.');
+    if (paperSevere) steps.push('Oil regeneration can slow further paper ageing while the replacement is on order, but cannot restore the insulation.');
+    return {headline:'Replace the transformer', steps, outage:'Planned replacement outage'};
+  }
+  // Tier 2: repair / mitigation by fault type
+  let headline='Repair and mitigate', outage='Short planned outage';
+  switch (fault){
+    case 'D2':
+      headline='Locate and repair the arcing fault';
+      steps.push('Take an outage for electrical tests (winding resistance, turns ratio, SFRA, power factor) to locate the arc.');
+      steps.push('Internal inspection: repair or replace burnt leads, loose winding connections and damaged tap-changer selector contacts.');
+      steps.push('If winding damage is found, rewind or replace the affected winding; this can make replacement the better option.');
+      outage='Extended outage (internal inspection)'; break;
+    case 'D1':
+      headline='Find and remove the sparking source';
+      steps.push('Check for floating (unbonded) metal parts, loose shield connections and poor contacts; bond or tighten them.');
+      steps.push('Inspect tap-changer selector contacts and bushing connections.');
+      break;
+    case 'T3':
+      headline='Repair the high-temperature hot spot';
+      steps.push('Run infrared scans and measure winding resistance on every tap to find high-resistance joints.');
+      steps.push('Re-make or replace overheated bolted connections and tap-changer contacts; check for multiple core grounds and repair core insulation.');
+      outage='Planned outage (internal access likely)'; break;
+    case 'T2':
+      headline='Repair the overheating source';
+      steps.push('Tighten or re-make bolted connections; check core ground current for circulating currents and clear any extra core ground.');
+      steps.push('Restore full cooling: service pumps, fans and radiators.');
+      break;
+    case 'T1':
+      headline='Restore cooling and reduce thermal stress';
+      steps.push('Service the cooling system (fans, pumps, radiators, valve positions) and check oil level.');
+      steps.push('Review the load profile; reduce sustained overloading.');
+      outage='Minimal (cooling work can often be done live)'; break;
+    case 'PD':
+      headline='Remove moisture and repair insulation defects';
+      steps.push('Locate the discharge with acoustic or UHF PD measurement.');
+      steps.push('Dry out the insulation and filter the oil if moisture is high; repair the bushing or insulation defect found.');
+      break;
+    case 'DT':
+      headline='Repair the combined thermal and discharge fault';
+      steps.push('Combine electrical tests with thermography to separate the two sources.');
+      steps.push('Repair loose connections and poor contacts; check the tap changer and core grounding.');
+      break;
+  }
+  if (!['D1','D2'].includes(fault) && gas.C2H2.above90 && gas.C2H2.rate!=null && gas.C2H2.rate<=LIMITS.rate.C2H2)
+    steps.push('Stable acetylene suggests a leak from the tap-changer compartment: compare OLTC and main-tank oil and reseal the barrier.');
+  if (!fault && keyGas.gas==='H2') steps.push('Check oil moisture and dielectric strength; dry out the insulation if moisture is high.');
+  if (paper && paper.flag){
+    steps.push('Test furans (2-FAL) to estimate the paper degree of polymerization and remaining life.');
+    steps.push('Regenerate or filter the oil to slow paper ageing, and limit hot-spot temperature.');
+    if (!fault) headline='Slow insulation ageing and confirm remaining life';
+  }
+  if (o2n2!=null && o2n2>0.2) steps.push('Stop air ingress: replace the conservator bladder or failed gaskets.');
+  if (fault) steps.push('After the repair, degas the oil so new gas generation can be tracked from a clean baseline.');
+  if (!steps.length){ headline='Confirm and monitor'; steps.push('Resample to confirm the elevated gases, then repeat the analysis.'); outage='None'; }
+  return {headline, steps, outage};
 }
 function analyzeFleet(units, asOf){
   const res = units.filter(u=>u.samples.length).map(u=>analyzeUnit(u, asOf));
@@ -508,7 +620,7 @@ function exampleUnits(){
 }
 
 /* ---------- State ---------- */
-const state = { units: exampleUnits(), isExample:true, results:[], selected:null, sources:[], asOf:new Date(), hidden:new Set(['CO','CO2']) };
+const state = { tierFilter:0, units: exampleUnits(), isExample:true, results:[], selected:null, sources:[], asOf:new Date(), hidden:new Set(['CO','CO2']) };
 
 /* ---------- Helpers ---------- */
 const $ = s => document.querySelector(s);
@@ -518,6 +630,7 @@ const fmtDate = d => d? d.toLocaleDateString(undefined,{year:'numeric',month:'sh
 const isoDate = d => d? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` : '';
 function toast(msg){ const t=document.createElement('div'); t.className='toast'; t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(),2600); }
 function log(msg,err){ $('#log-panel').hidden=false; const d=document.createElement('div'); if(err) d.className='err'; d.textContent=msg; $('#log').prepend(d); }
+function tierBadge(n,big){ return `<span class="tier t${n}${big?' big':''}"><i aria-hidden="true">${TIERS[n].icon}</i>Tier ${n} · ${big?TIERS[n].label:TIERS[n].short}</span>`; }
 function pill(p){ return `<span class="pill ${p}"><i aria-hidden="true">${PRIORITY[p].icon}</i>${p} ${PRIORITY[p].label}</span>`; }
 const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
@@ -540,16 +653,16 @@ function renderSource(){
   }
 }
 function renderKpis(){
-  const R = state.results; const c = p=>R.filter(r=>r.priority===p).length;
+  const R = state.results; const c = p=>R.filter(r=>r.priority===p).length; const t = n=>R.filter(r=>r.tier===n).length;
   const s3 = R.filter(r=>r.status===3).length;
   const hs = R.map(r=>r.health).sort((a,b)=>a-b); const med = hs.length? hs[Math.floor((hs.length-1)/2)] : 0;
   const rising = R.filter(r=>r.trend>=40).length;
   $('#kpis').innerHTML = [
     {v:R.length,l:'Transformers analyzed',s:`${R.reduce((a,r)=>a+r.samples.length,0)} DGA samples`},
-    {v:c('P1'),l:'P1 Immediate',s:'Act within days',tone:'critical'},
-    {v:c('P2'),l:'P2 Urgent',s:'Act within weeks',tone:'serious'},
-    {v:s3,l:'DGA status 3',s:'Above 95th pct. and rising',tone:s3?'critical':undefined},
-    {v:rising,l:'Gas levels rising fast',s:'Rate above IEEE limits'},
+    {v:t(1),l:'Tier 1 · Replacement',s:'Beyond economic repair',tone:'critical'},
+    {v:t(2),l:'Tier 2 · Mitigation',s:'Repair or control the fault',tone:'warning'},
+    {v:t(3),l:'Tier 3 · No action needed',s:'Routine sampling only',tone:'good'},
+    {v:c('P1'),l:'P1 Immediate',s:`${c('P2')} more P2 Urgent`},
     {v:med,l:'Median health index',s:'0 worst · 100 best'}
   ].map(k=>`<div class="kpi"${k.tone?` data-tone="${k.tone}"`:''}><span class="l">${k.l}</span><span class="v">${k.v}</span><span class="s">${k.s}</span></div>`).join('');
 }
@@ -560,15 +673,18 @@ function trendCell(r){
   return `<span class="trend-up">↑ ${GAS_LABEL[top.g]}</span> <span class="sub">${fmt(top.x.rate)}/yr</span>`;
 }
 function renderTable(){
-  const R = state.results;
-  $('#rank-table').innerHTML = `<thead><tr><th class="r">#</th><th>Transformer</th><th>Priority</th><th>Score</th><th class="r">Health</th><th>Indicated fault</th><th>Status</th><th class="r">TDCG</th><th>Trend</th><th>Last sample</th></tr></thead><tbody>${
+  const R = state.results.filter(r=>!state.tierFilter || r.tier===state.tierFilter);
+  $('#tier-filter').innerHTML = [0,1,2,3].map(n=>`<button type="button" data-t="${n}" aria-pressed="${(state.tierFilter||0)===n}">${n?`Tier ${n} · ${TIERS[n].short} (${state.results.filter(r=>r.tier===n).length})`:`All (${state.results.length})`}</button>`).join('');
+  document.querySelectorAll('#tier-filter button').forEach(b=>b.onclick=()=>{ state.tierFilter=+b.dataset.t||0; renderTable(); });
+  $('#rank-table').innerHTML = `<thead><tr><th class="r">#</th><th>Transformer</th><th>Tier</th><th>Priority</th><th>Score</th><th class="r">Health</th><th>Fault · repair</th><th>Status</th><th class="r">TDCG</th><th>Trend</th><th>Last sample</th></tr></thead><tbody>${
     R.map(r=>`<tr class="row${r.id===state.selected?' sel':''}" data-id="${esc(r.id)}" tabindex="0">
       <td class="r num">${r.rank}</td>
       <td><div class="uid">${esc(r.id)}</div><div class="sub">${esc(r.unit.location||'')}${r.unit.mva?` · ${fmt(r.unit.mva)} MVA`:''}</div></td>
+      <td>${tierBadge(r.tier)}</td>
       <td>${pill(r.priority)}</td>
       <td><div class="bar"><div class="track"><div class="fill" style="width:${r.score}%;background:var(--${PRIORITY[r.priority].tone})"></div></div><span class="num">${r.score.toFixed(0)}</span></div></td>
       <td class="r num">${r.health}</td>
-      <td class="wrapcell">${esc(r.faultName)}${r.fault?` <span class="chip">${r.fault}</span>`:''}</td>
+      <td class="wrapcell">${esc(r.faultName)}${r.fault?` <span class="chip">${r.fault}</span>`:''}<div class="sub">${esc(r.repair.headline)}</div></td>
       <td><span class="st s${r.status}"><b></b>${r.status}</span></td>
       <td class="r num">${fmt(r.tdcg)}</td>
       <td>${trendCell(r)}</td>
@@ -604,7 +720,7 @@ function renderMatrix(){
   $('#matrix-legend').innerHTML = ['P1','P2','P3','P4'].map(p=>`<span><b style="background:var(--${PRIORITY[p].tone})"></b>${PRIORITY[p].icon} ${p} ${PRIORITY[p].label}</span>`).join('');
   document.querySelectorAll('#matrix .pt').forEach(el=>{
     const r = state.results.find(x=>x.id===el.dataset.id);
-    el.onmouseenter=ev=>showTip(`<b>${esc(r.id)}</b> ${esc(r.unit.location||'')}<div>${PRIORITY[r.priority].icon} ${r.priority} ${PRIORITY[r.priority].label} · score ${r.score.toFixed(0)}</div><div class="r"><span>Condition</span><span>${r.cond}</span></div><div class="r"><span>Trend</span><span>${r.trend}</span></div><div class="r"><span>Risk</span><span>${r.risk}</span></div><div>${esc(r.faultName)}</div>`,ev);
+    el.onmouseenter=ev=>showTip(`<b>${esc(r.id)}</b> ${esc(r.unit.location||'')}<div>${PRIORITY[r.priority].icon} ${r.priority} ${PRIORITY[r.priority].label} · score ${r.score.toFixed(0)}</div><div>Tier ${r.tier} · ${TIERS[r.tier].label}</div><div class="r"><span>Condition</span><span>${r.cond}</span></div><div class="r"><span>Trend</span><span>${r.trend}</span></div><div class="r"><span>Risk</span><span>${r.risk}</span></div><div>${esc(r.faultName)}</div>`,ev);
     el.onmousemove=moveTip; el.onmouseleave=hideTip;
     el.onclick=()=>{ state.selected=r.id; renderTable(); renderMatrix(); renderDetail(); };
   });
@@ -676,6 +792,13 @@ function renderDetail(){
       <div><div class="eyebrow">Rank ${r.rank} of ${state.results.length} · unit diagnosis</div><h2 style="font-size:1.35rem">${esc(r.id)} ${pill(r.priority)}</h2><div class="meta">${meta.map(esc).map(x=>`<span>${x}</span>`).join('')}</div></div>
       <button class="btn primary" id="btn-unit-ai" type="button">AI engineering assessment</button>
     </div>
+    <div class="repair t${r.tier}">
+      <div class="repair-h">${tierBadge(r.tier,true)}<h3>Repair recommendation: ${esc(r.repair.headline)}</h3><span class="note">Outage: ${esc(r.repair.outage)}</span></div>
+      <div class="repair-cols">
+        <div><div class="eyebrow" style="margin-bottom:6px">Why this tier</div><ul>${r.tierWhy.map(w=>`<li>${esc(w)}</li>`).join('')}</ul><p class="note" style="margin:8px 0 0">${esc(TIERS[r.tier].desc)}</p></div>
+        <div><div class="eyebrow" style="margin-bottom:6px">Repair steps</div><ol>${r.repair.steps.map(a=>`<li>${esc(a)}</li>`).join('')}</ol></div>
+      </div>
+    </div>
     <div class="scores">
       <div class="score"><div class="l">Priority score</div><div class="v">${r.score.toFixed(0)}</div></div>
       <div class="score"><div class="l">Health index</div><div class="v">${r.health}</div></div>
@@ -688,7 +811,7 @@ function renderDetail(){
       <div class="c-7">
         <div class="subhead"><h3>Findings</h3><span class="note">${esc(r.faultName)}</span></div>
         <ul class="findings">${r.findings.map(f=>`<li class="${f.lvl}"><span class="ic" aria-hidden="true">${{crit:'▲',warn:'◆',info:'i',ok:'✓'}[f.lvl]}</span><span>${esc(f.text)}</span></li>`).join('')}</ul>
-        <div class="actions-box" style="margin-top:14px"><h3>Recommended actions</h3><ol>${r.actions.map(a=>`<li>${esc(a)}</li>`).join('')}</ol></div>
+        <div class="actions-box" style="margin-top:14px"><h3>Monitoring and next steps</h3><ol>${r.actions.map(a=>`<li>${esc(a)}</li>`).join('')}</ol></div>
       </div>
       <div class="c-5 chart">
         <div class="subhead"><h3>Duval Triangle 1</h3><span class="note">${r.duval?`${r.duval.zone} · CH₄ ${r.duval.pCH4.toFixed(0)}% · C₂H₄ ${r.duval.pC2H4.toFixed(0)}% · C₂H₂ ${r.duval.pC2H2.toFixed(0)}%`:'No hydrocarbons'}</span></div>
@@ -746,6 +869,11 @@ function renderMethod(){
    <p><b>Trend</b> (0–100): fastest gas increase compared with the IEEE rate and change limits.</p>
    <p><b>Risk</b> (0–100): criticality 1–5 (default 3), age and MVA rating, taken from your file when present.</p>
    <p><b>Priority score</b> = 55% condition + 25% trend + 20% risk. P1 ≥ 60, P2 ≥ 42, P3 ≥ 26. A status-3 unit with a fast-rising arcing or hot-metal fault is always P1.</p></div>
+  <div><h3>Action tiers</h3>
+   <p><b>Tier 1 · Replacement</b> when health index ≤ 25 and the unit is 35+ years old or has severe paper degradation; or an arcing (D2) or hot-metal (T3) fault is active, status 3 and accelerating in a unit 25+ years old; or severe paper degradation with CO above the 95th percentile in a unit 40+ years old.</p>
+   <p><b>Tier 3 · No action needed</b> when the unit ranks P4 Routine: gases typical and stable.</p>
+   <p><b>Tier 2 · Mitigation</b> for everything else: a repairable fault or deterioration. The repair plan is chosen from the fault type, acetylene behaviour, paper condition and O₂/N₂.</p>
+   <p class="note">Unknown age counts against neither rule, so add year built or age to your file for reliable tiers.</p></div>
   <div><h3>Default limits, ppm</h3>
    <div class="tbl-wrap"><table class="gas-tbl"><thead><tr><th>Gas</th><th class="r">90th</th><th class="r">95th</th><th class="r">90th open</th><th class="r">Δ</th><th class="r">Rate/yr</th></tr></thead><tbody>
    ${GASES.map(g=>`<tr><td>${GAS_LABEL[g]}</td><td class="r num">${L.L90[g]}</td><td class="r num">${L.L95[g]}</td><td class="r num">${O.L90[g]}</td><td class="r num">${LIMITS.delta[g]}</td><td class="r num">${LIMITS.rate[g]}</td></tr>`).join('')}
@@ -919,8 +1047,8 @@ $('#btn-paste-go').onclick=async()=>{ const t=$('#paste-text').value; if(!t.trim
 
 /* ---------- Export ---------- */
 function rankingRows(){
-  const head=['Rank','Transformer','Location','Priority','Priority label','Score','Health index','Condition','Trend','Risk','DGA status','Indicated fault','Duval zone','IEC code','TDCG ppm','TDCG condition','Last sample',...GASES.map(g=>g+' ppm'),'Next step','Recommended actions'];
-  return [head,...state.results.map(r=>[r.rank,r.id,r.unit.location||'',r.priority,PRIORITY[r.priority].label,r.score,r.health,r.cond,r.trend,r.risk,r.status,r.faultName,r.duval?.zone||'',r.iec.code,Math.round(r.tdcg),r.tdcgCond,isoDate(r.last.date),...GASES.map(g=>r.last[g]??''),PRIORITY[r.priority].interval,r.actions.join(' | ')])];
+  const head=['Rank','Transformer','Location','Tier','Tier action','Repair recommendation','Repair steps','Outage','Why this tier','Priority','Priority label','Score','Health index','Condition','Trend','Risk','DGA status','Indicated fault','Duval zone','IEC code','TDCG ppm','TDCG condition','Last sample',...GASES.map(g=>g+' ppm'),'Next step','Recommended actions'];
+  return [head,...state.results.map(r=>[r.rank,r.id,r.unit.location||'',r.tier,TIERS[r.tier].label,r.repair.headline,r.repair.steps.join(' | '),r.repair.outage,r.tierWhy.join(' | '),r.priority,PRIORITY[r.priority].label,r.score,r.health,r.cond,r.trend,r.risk,r.status,r.faultName,r.duval?.zone||'',r.iec.code,Math.round(r.tdcg),r.tdcgCond,isoDate(r.last.date),...GASES.map(g=>r.last[g]??''),PRIORITY[r.priority].interval,r.actions.join(' | ')])];
 }
 async function saveFile(filename,data,mime){
   try{ const dl=await window.claude?.use?.('downloads'); if(dl){ await dl.save({filename,data}); toast('Saved '+filename); return; } }catch(e){ if(e?.code==='declined') return; }
@@ -968,6 +1096,8 @@ function md(text){
 function unitBrief(r, full){
   const hist = r.samples.slice(full?-12:-3).map(s=>`${isoDate(s.date)}: `+[...GASES,'O2','N2'].map(g=>`${g}=${s[g]??'na'}`).join(' ')).join('\n');
   return `Unit ${r.id}${r.unit.location?` (${r.unit.location})`:''}; MVA ${r.unit.mva??'na'}; kV ${r.unit.kv??'na'}; age ${r.age??'na'}; criticality ${r.unit.criticality??'na (default 3)'}
+Tier ${r.tier} (${TIERS[r.tier].label}) because: ${r.tierWhy.join('; ')}
+Rule-based repair recommendation: ${r.repair.headline}. Steps: ${r.repair.steps.join(' ')}
 Rank ${r.rank}/${state.results.length}; priority ${r.priority} ${PRIORITY[r.priority].label}; score ${r.score}; health ${r.health}; condition ${r.cond}; trend ${r.trend}; risk ${r.risk}
 DGA status ${r.status}/3; TDCG ${Math.round(r.tdcg)} ppm (cond ${r.tdcgCond}); Duval ${r.duval?.zone??'na'}; IEC ratio code ${r.iec.code}; key gas: ${r.keyGas.text}; paper: ${r.paper?.text??'na'}; O2/N2 ${r.o2n2?.toFixed(2)??'na'}; limits ${r.limKind}
 Rates ppm/yr: ${GASES.map(g=>`${g} ${r.gas[g].rate==null?'na':r.gas[g].rate.toFixed(1)}`).join(', ')}
@@ -992,16 +1122,18 @@ Write a concise engineering assessment for a maintenance planner, using these he
 ## Diagnosis
 ## Likely root causes
 ## Risk if untreated
+## Action tier (1 Replacement, 2 Mitigation, 3 No action needed)
+## Repair recommendation
 ## Recommended actions (with timeframes)
 ## Confidence and data gaps
-Use short bullet points, cite the gas values and rates that drive each conclusion, say whether you agree with the assigned priority and why. Do not invent test results that are not given. Units are ppm.
+Use short bullet points, cite the gas values and rates that drive each conclusion, say whether you agree with the assigned priority and action tier and why. In the repair section, name the specific repair work (what to fix, replace or service), and say whether repair or replacement is the better choice. Do not invent test results that are not given. Units are ppm.
 
 ${unitBrief(r,true)}`;
   streamTo($('#unit-out'), $('#btn-unit-stop'), prompt);
 }
 function fleetPrompt(question){
   const R=state.results;
-  const table=R.map(r=>`${r.rank}. ${r.id} | ${r.priority} | score ${r.score} | health ${r.health} | status ${r.status} | ${r.faultName}${r.fault?` (${r.fault})`:''} | TDCG ${Math.round(r.tdcg)} | fastest rise: ${(()=>{const t=GASES.map(g=>({g,q:(r.gas[g].rate??0)/LIMITS.rate[g],x:r.gas[g]})).sort((a,b)=>b.q-a.q)[0];return t&&t.q>=1?`${t.g} ${t.x.rate.toFixed(1)} ppm/yr`:'stable';})()} | MVA ${r.unit.mva??'na'} | age ${r.age??'na'} | crit ${r.unit.criticality??'na'}`).join('\n');
+  const table=R.map(r=>`${r.rank}. ${r.id} | Tier ${r.tier} ${TIERS[r.tier].short} | ${r.repair.headline} | ${r.priority} | score ${r.score} | health ${r.health} | status ${r.status} | ${r.faultName}${r.fault?` (${r.fault})`:''} | TDCG ${Math.round(r.tdcg)} | fastest rise: ${(()=>{const t=GASES.map(g=>({g,q:(r.gas[g].rate??0)/LIMITS.rate[g],x:r.gas[g]})).sort((a,b)=>b.q-a.q)[0];return t&&t.q>=1?`${t.g} ${t.x.rate.toFixed(1)} ppm/yr`:'stable';})()} | MVA ${r.unit.mva??'na'} | age ${r.age??'na'} | crit ${r.unit.criticality??'na'}`).join('\n');
   const detail=R.filter(r=>r.priority==='P1'||r.priority==='P2').slice(0,8).map(r=>unitBrief(r,false)).join('\n\n');
   const base=`You are a senior transformer asset-management engineer. Below is a fleet DGA screening (IEEE C57.104-2019 status approach, Duval Triangle 1, IEC 60599 ratios, key gas, CO2/CO) with a priority ranking. Units in ppm.
 
@@ -1011,7 +1143,7 @@ ${table}
 DETAIL FOR HIGHEST-PRIORITY UNITS
 ${detail}`;
   if (question) return `${base}\n\nAnswer this question from the maintenance team, briefly and specifically, citing unit IDs and values. Use short bullets. If the data cannot answer it, say what is missing.\nQuestion: ${question}`;
-  return `${base}\n\nWrite a fleet maintenance briefing for the asset manager, using these headings exactly:\n## Fleet overview\n## Units needing immediate action\n## Developing problems to watch\n## Suggested maintenance sequence (next 90 days)\n## Data quality notes\nKeep it under 400 words, use bullets, cite unit IDs and the values that justify each point. Say if you would change any assigned priority and why.`;
+  return `${base}\n\nWrite a fleet maintenance briefing for the asset manager, using these headings exactly:\n## Fleet overview\n## Tier 1 · Replacement candidates\n## Tier 2 · Mitigation and repair work\n## Tier 3 · No action needed\n## Suggested maintenance sequence (next 90 days)\n## Data quality notes\nKeep it under 400 words, use bullets, cite unit IDs and the values that justify each point. Say if you would change any assigned priority or tier and why.`;
 }
 $('#btn-fleet-ai').onclick=()=>streamTo($('#fleet-out'),$('#btn-fleet-stop'),fleetPrompt());
 $('#btn-fleet-ask').onclick=()=>{ const q=$('#fleet-q').value.trim(); if(q) streamTo($('#fleet-out'),$('#btn-fleet-stop'),fleetPrompt(q),{cache:false}); };

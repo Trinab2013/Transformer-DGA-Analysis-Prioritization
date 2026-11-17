@@ -31,14 +31,19 @@ Columns it recognizes: transformer ID, sample date, H2, CH4, C2H6, C2H4, C2H2, C
 - **Scores**: condition (0–100), trend (0–100), risk (criticality, age, MVA).
   Priority score = 55% condition + 25% trend + 20% risk → P1 Immediate (≥60), P2 Urgent (≥42), P3 Planned (≥26), P4 Routine. A status-3 unit with a fast-rising arcing or hot-metal fault is always P1.
 - **Health index** = 100 − (0.65 × condition + 0.25 × trend).
-- **Recommended actions** and resample interval are generated for each unit's fault type and priority.
+- **Action tier** for every unit:
+  - **Tier 1 · Replacement**: health index ≤ 25 and age 35+ or severe paper degradation; or an active, accelerating arcing (D2) / hot-metal (T3) fault at status 3 in a unit 25+ years old; or severe paper degradation with CO above the 95th percentile at age 40+.
+  - **Tier 2 · Mitigation**: a repairable fault or deterioration (everything not in Tier 1 or 3).
+  - **Tier 3 · No action needed**: P4 Routine, gases typical and stable.
+- **Repair recommendation**: a headline repair, step-by-step repair work chosen from the fault type, acetylene behaviour, paper condition and O2/N2, and the expected outage. Tier 1 units get a replacement plan with interim restrictions.
+- **Monitoring and next steps** with a resample interval for each unit's priority.
 
 Limits and weights are in the `ENGINE` block of `src/dashboard.html` (`LIMITS`, `FAULTS`, `analyzeUnit`). Change them to match your utility's standard.
 
 ## AI features (in Claude)
 
-- AI engineering assessment for each unit: diagnosis, root causes, risk, action plan, confidence.
-- Fleet briefing and free-form questions about the ranked fleet.
+- AI engineering assessment for each unit: diagnosis, root causes, risk, action tier, repair recommendation, action plan, confidence.
+- Fleet briefing grouped by tier, and free-form questions about the ranked fleet.
 - Pulls DGA samples out of unstructured reports.
 
 This is a screening tool. Confirm results with a resample and your utility's standards before acting.
