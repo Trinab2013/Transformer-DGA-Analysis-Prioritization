@@ -1,0 +1,1042 @@
+<title>Transformer DGA Prioritization</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Source+Sans+3:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: control-room console. Summary strip, then ranked fleet + risk matrix, then a unit drill-down, then AI and method notes. */
+:root{
+  --bg:#eef2f5; --surface:#ffffff; --surface-2:#f6f8fa; --ink:#13202c; --ink-2:#4a5b6b; --muted:#6b7c8c;
+  --line:#d6dee6; --line-2:#e7ecf1; --accent:#a8640a; --accent-ink:#ffffff; --accent-soft:#fbefdc;
+  --focus:#2a78d6;
+  --good:#0ca30c; --warning:#fab219; --serious:#ec835a; --critical:#d03b3b;
+  --good-soft:#e3f5e3; --warning-soft:#fff3d6; --serious-soft:#fde6dc; --critical-soft:#fbe1e1;
+  --g-H2:#2a78d6; --g-CH4:#eb6834; --g-C2H6:#1baf7a; --g-C2H4:#eda100; --g-C2H2:#e87ba4; --g-CO:#008300; --g-CO2:#6250d6;
+  --z-PD:#2a78d6; --z-T1:#eda100; --z-T2:#eb6834; --z-T3:#e34948; --z-D1:#1baf7a; --z-D2:#6250d6; --z-DT:#e87ba4;
+  --font-display:"Archivo","Segoe UI",system-ui,sans-serif;
+  --font-body:"Source Sans 3","Segoe UI",system-ui,sans-serif;
+  --font-mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0d1319; --surface:#151e27; --surface-2:#1a2530; --ink:#e4ebf1; --ink-2:#b2c0cd; --muted:#8a9bab;
+  --line:#2a3846; --line-2:#22303c; --accent:#e9a23b; --accent-ink:#1a1206; --accent-soft:#3a2a12;
+  --focus:#5598e7;
+  --good-soft:#163019; --warning-soft:#3a2f12; --serious-soft:#3b2318; --critical-soft:#3d1a1a;
+  --g-H2:#3987e5; --g-CH4:#d95926; --g-C2H6:#199e70; --g-C2H4:#c98500; --g-C2H2:#d55181; --g-CO:#0ca30c; --g-CO2:#9085e9;
+  --z-PD:#3987e5; --z-T1:#c98500; --z-T2:#d95926; --z-T3:#e66767; --z-D1:#199e70; --z-D2:#9085e9; --z-DT:#d55181;
+  color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#0d1319; --surface:#151e27; --surface-2:#1a2530; --ink:#e4ebf1; --ink-2:#b2c0cd; --muted:#8a9bab;
+  --line:#2a3846; --line-2:#22303c; --accent:#e9a23b; --accent-ink:#1a1206; --accent-soft:#3a2a12;
+  --focus:#5598e7;
+  --good-soft:#163019; --warning-soft:#3a2f12; --serious-soft:#3b2318; --critical-soft:#3d1a1a;
+  --g-H2:#3987e5; --g-CH4:#d95926; --g-C2H6:#199e70; --g-C2H4:#c98500; --g-C2H2:#d55181; --g-CO:#0ca30c; --g-CO2:#9085e9;
+  --z-PD:#3987e5; --z-T1:#c98500; --z-T2:#d95926; --z-T3:#e66767; --z-D1:#199e70; --z-D2:#9085e9; --z-DT:#d55181;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.45}
+.wrap{max-width:1360px;margin:0 auto;padding-block:20px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:18px}
+h1,h2,h3{font-family:var(--font-display);text-wrap:balance;margin:0;letter-spacing:-.01em}
+h1{font-size:1.55rem;font-weight:800}
+h2{font-size:1.08rem;font-weight:700}
+h3{font-size:.95rem;font-weight:700}
+.eyebrow{font-family:var(--font-mono);font-size:.7rem;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.mono,.num{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)}
+button,select,input,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.btn{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:7px 12px;cursor:pointer;font-weight:600;font-size:.88rem;white-space:nowrap}
+.btn:hover{border-color:var(--ink-2)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.primary:hover{filter:brightness(1.06)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn svg{width:16px;height:16px;flex:none}
+
+/* Header */
+.top{display:flex;flex-wrap:wrap;gap:14px 24px;align-items:flex-end;justify-content:space-between}
+.brand{display:flex;gap:12px;align-items:center;min-width:0}
+.brand-mark{width:40px;height:40px;border-radius:9px;background:var(--ink);display:grid;place-items:center;flex:none}
+.brand-mark svg{width:24px;height:24px}
+.actions{display:flex;flex-wrap:wrap;gap:8px}
+.source{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:10px 14px;border:1px dashed var(--line);border-radius:10px;background:var(--surface-2);font-size:.88rem}
+.source strong{font-weight:700}
+.source .sp{flex:1}
+.drop-active{outline:3px dashed var(--accent);outline-offset:-6px}
+
+/* KPI strip */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:grid;gap:2px;position:relative;overflow:hidden}
+.kpi .v{font-family:var(--font-display);font-size:1.9rem;font-weight:800;line-height:1.1;font-variant-numeric:tabular-nums}
+.kpi .l{font-size:.82rem;color:var(--ink-2);font-weight:600}
+.kpi .s{font-size:.76rem;color:var(--muted)}
+.kpi[data-tone]::before{content:"";position:absolute;inset:0 auto 0 0;width:4px;background:var(--tone)}
+.kpi[data-tone="critical"]{--tone:var(--critical)} .kpi[data-tone="serious"]{--tone:var(--serious)} .kpi[data-tone="warning"]{--tone:var(--warning)} .kpi[data-tone="good"]{--tone:var(--good)}
+
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;min-width:0}
+.panel-h{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:baseline;justify-content:space-between;margin-bottom:12px}
+.grid-2{display:grid;grid-template-columns:minmax(0,1.75fr) minmax(0,1fr);gap:18px}
+@media (max-width:1000px){.grid-2{grid-template-columns:1fr}}
+
+/* Ranking table */
+.tbl-wrap{overflow-x:auto;margin:0 -4px}
+table{border-collapse:collapse;width:100%;font-size:.88rem}
+th{font-family:var(--font-mono);font-size:.66rem;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:500;text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:8px;border-bottom:1px solid var(--line-2);vertical-align:middle;white-space:nowrap}
+td.wrapcell{white-space:normal;min-width:150px}
+tr.row{cursor:pointer}
+tr.row:hover td{background:var(--surface-2)}
+tr.row.sel td{background:var(--accent-soft)}
+th.r,td.r{text-align:right}
+.uid{font-weight:700}
+.sub{font-size:.76rem;color:var(--muted)}
+.pill{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:2px 9px 2px 7px;font-size:.76rem;font-weight:700;border:1px solid transparent;white-space:nowrap}
+.pill i{font-style:normal;font-size:.7rem}
+.pill.P1{background:var(--critical-soft);border-color:var(--critical);color:var(--ink)} .pill.P1 i{color:var(--critical)}
+.pill.P2{background:var(--serious-soft);border-color:var(--serious);color:var(--ink)} .pill.P2 i{color:var(--serious)}
+.pill.P3{background:var(--warning-soft);border-color:var(--warning);color:var(--ink)} .pill.P3 i{color:var(--warning)}
+.pill.P4{background:var(--good-soft);border-color:var(--good);color:var(--ink)} .pill.P4 i{color:var(--good)}
+.chip{display:inline-block;border:1px solid var(--line);border-radius:6px;padding:1px 6px;font-family:var(--font-mono);font-size:.72rem;background:var(--surface-2)}
+.st{font-family:var(--font-mono);font-size:.74rem;font-weight:600}
+.st b{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;vertical-align:0}
+.st.s1 b{background:var(--good)} .st.s2 b{background:var(--warning)} .st.s3 b{background:var(--critical)}
+.bar{display:flex;align-items:center;gap:8px}
+.bar .track{width:70px;height:6px;border-radius:3px;background:var(--line-2);overflow:hidden}
+.bar .fill{height:100%;border-radius:3px;background:var(--ink-2)}
+.trend-up{color:var(--critical);font-weight:700} .trend-flat{color:var(--muted)}
+
+/* Matrix */
+.chart svg{display:block;width:100%;height:auto;overflow:visible}
+.chart text{fill:var(--muted);font-family:var(--font-mono);font-size:10px}
+.chart .axis-title{fill:var(--ink-2);font-size:10.5px;font-weight:600}
+.chart .grid{stroke:var(--line-2);stroke-width:1}
+.chart .axis{stroke:var(--line);stroke-width:1}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:.8rem;color:var(--ink-2);margin-top:8px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend b{width:10px;height:10px;border-radius:50%;display:inline-block}
+.legend button{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:3px 10px 3px 8px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-size:.78rem;font-family:var(--font-mono)}
+.legend button[aria-pressed="false"]{opacity:.45}
+.legend button b{width:12px;height:3px;border-radius:2px}
+
+/* Detail */
+.detail-h{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;justify-content:space-between}
+.detail-h .meta{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:.84rem;color:var(--ink-2)}
+.scores{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-top:14px}
+.score{border:1px solid var(--line-2);background:var(--surface-2);border-radius:9px;padding:9px 12px}
+.score .v{font-family:var(--font-display);font-weight:800;font-size:1.35rem;font-variant-numeric:tabular-nums}
+.score .l{font-size:.76rem;color:var(--muted);font-weight:600}
+.detail-grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:18px;margin-top:18px}
+.c-5{grid-column:span 5}.c-7{grid-column:span 7}.c-6{grid-column:span 6}.c-12{grid-column:span 12}
+@media (max-width:1000px){.c-5,.c-7,.c-6{grid-column:span 12}}
+.findings{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.findings li{display:grid;grid-template-columns:18px 1fr;gap:8px;font-size:.9rem;align-items:start}
+.findings li .ic{font-weight:800;font-size:.8rem;line-height:1.5;text-align:center}
+.findings li.crit .ic{color:var(--critical)} .findings li.warn .ic{color:var(--serious)} .findings li.info .ic{color:var(--muted)} .findings li.ok .ic{color:var(--good)}
+.actions-box{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--surface-2);display:grid;gap:8px}
+.actions-box ol{margin:0;padding-left:20px;display:grid;gap:5px;font-size:.9rem}
+.subhead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:8px}
+.gas-tbl td,.gas-tbl th{padding:6px 7px}
+.gas-tbl .over95{color:var(--critical);font-weight:700}
+.gas-tbl .over90{color:var(--serious);font-weight:700}
+.dot{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px;vertical-align:0}
+.diag{display:grid;gap:0}
+.diag-row{display:grid;grid-template-columns:150px 1fr;gap:10px;padding:8px 0;border-bottom:1px solid var(--line-2);font-size:.88rem}
+.diag-row:last-child{border-bottom:0}
+.diag-row .k{color:var(--muted);font-weight:600}
+@media (max-width:520px){.diag-row{grid-template-columns:1fr;gap:2px}}
+
+/* AI */
+.ai{display:grid;gap:12px}
+.ai-out{border:1px solid var(--line);border-radius:10px;background:var(--surface-2);padding:14px 16px;min-height:64px;font-size:.92rem;max-width:none}
+.ai-out h4{font-family:var(--font-display);font-size:.92rem;margin:12px 0 4px}
+.ai-out h4:first-child{margin-top:0}
+.ai-out p{margin:4px 0}
+.ai-out ul{margin:4px 0;padding-left:20px}
+.ai-out.placeholder{color:var(--muted)}
+.ai-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.ai-row input{flex:1;min-width:200px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--surface)}
+.note{font-size:.8rem;color:var(--muted)}
+.badge-ai{font-family:var(--font-mono);font-size:.66rem;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--accent);color:var(--accent);border-radius:4px;padding:1px 6px}
+
+/* Mapping */
+.mapping{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px}
+.mapping label{display:grid;gap:3px;font-size:.78rem;color:var(--muted);font-weight:600}
+.mapping select{border:1px solid var(--line);border-radius:7px;padding:6px 8px;background:var(--surface);font-size:.85rem}
+textarea{width:100%;min-height:140px;border:1px solid var(--line);border-radius:8px;padding:10px;background:var(--surface);font-family:var(--font-mono);font-size:.8rem}
+details.method summary{cursor:pointer;font-family:var(--font-display);font-weight:700}
+details.method .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px;margin-top:12px;font-size:.88rem}
+details.method p{margin:6px 0;max-width:68ch}
+.log{font-family:var(--font-mono);font-size:.78rem;color:var(--ink-2);display:grid;gap:2px}
+.log .err{color:var(--critical)}
+#tip{position:fixed;z-index:50;pointer-events:none;background:var(--ink);color:var(--bg);border-radius:8px;padding:8px 10px;font-size:.78rem;line-height:1.4;max-width:260px;box-shadow:0 6px 20px rgba(0,0,0,.18)}
+#tip b{font-weight:700}
+#tip .r{display:flex;justify-content:space-between;gap:14px;font-family:var(--font-mono)}
+#tip .sw{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:9px;font-size:.88rem;z-index:60}
+@media (prefers-reduced-motion:no-preference){tr.row td{transition:background .12s}}
+</style>
+
+<div class="wrap" id="app">
+  <header class="top">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round"><circle cx="8.5" cy="12" r="5"/><circle cx="15.5" cy="12" r="5"/><path d="M2 12h1.5M20.5 12H22"/></svg>
+      </div>
+      <div style="min-width:0">
+        <div class="eyebrow">Dissolved gas analysis · fleet condition</div>
+        <h1>Transformer DGA Prioritization</h1>
+      </div>
+    </div>
+    <div class="actions">
+      <input type="file" id="file-input" multiple hidden accept=".xlsx,.xls,.xlsm,.csv,.tsv,.ods,.json,.txt,.pdf,.docx,.png,.jpg,.jpeg,.webp">
+      <button class="btn primary" id="btn-upload" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 16V4M6 10l6-6 6 6M4 20h16"/></svg>Upload lab results</button>
+      <button class="btn" id="btn-paste" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="6" y="4" width="12" height="16" rx="2"/><path d="M9 9h6M9 13h6M9 17h3"/></svg>Paste report text</button>
+      <button class="btn" id="btn-export" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 4v12M6 10l6 6 6-6M4 20h16"/></svg>Export ranking</button>
+      <button class="btn" id="btn-template" type="button">Template</button>
+    </div>
+  </header>
+
+  <div class="source" id="source-bar"></div>
+
+  <section class="panel" id="paste-panel" hidden>
+    <div class="panel-h"><h2>Paste a lab report</h2><span class="note">Tables pasted from Excel are parsed directly. Free-text reports are read by Claude.</span></div>
+    <textarea id="paste-text" placeholder="Paste rows copied from Excel (with a header row), CSV text, or the text of a DGA lab report…"></textarea>
+    <div class="ai-row" style="margin-top:10px">
+      <button class="btn primary" id="btn-paste-go" type="button">Analyze pasted data</button>
+      <button class="btn" id="btn-paste-cancel" type="button">Cancel</button>
+    </div>
+  </section>
+
+  <section class="panel" id="map-panel" hidden>
+    <div class="panel-h"><h2>Check column mapping</h2><span class="note" id="map-note"></span></div>
+    <div class="mapping" id="map-grid"></div>
+    <div class="ai-row" style="margin-top:12px">
+      <button class="btn primary" id="btn-map-apply" type="button">Apply mapping</button>
+      <button class="btn" id="btn-map-cancel" type="button">Skip this sheet</button>
+    </div>
+  </section>
+
+  <section class="kpis" id="kpis" aria-label="Fleet summary"></section>
+
+  <div class="grid-2">
+    <section class="panel">
+      <div class="panel-h">
+        <h2>Maintenance priority ranking</h2>
+        <span class="note">Click a unit for its diagnosis</span>
+      </div>
+      <div class="tbl-wrap"><table id="rank-table"></table></div>
+    </section>
+    <section class="panel">
+      <div class="panel-h"><h2>Condition vs. risk</h2><span class="note">Upper right needs action first</span></div>
+      <div class="chart" id="matrix"></div>
+      <div class="legend" id="matrix-legend"></div>
+    </section>
+  </div>
+
+  <section class="panel" id="detail"></section>
+
+  <section class="panel ai" id="fleet-ai">
+    <div class="panel-h" style="margin:0">
+      <h2>Fleet briefing <span class="badge-ai">AI</span></h2>
+      <span class="note">Claude reads the computed results and writes a maintenance briefing</span>
+    </div>
+    <div class="ai-row">
+      <button class="btn primary" id="btn-fleet-ai" type="button">Write fleet briefing</button>
+      <input id="fleet-q" type="text" placeholder="Or ask a question, e.g. Which units need an outage this quarter?">
+      <button class="btn" id="btn-fleet-ask" type="button">Ask</button>
+      <button class="btn" id="btn-fleet-stop" type="button" hidden>Stop</button>
+    </div>
+    <div class="ai-out placeholder" id="fleet-out">The briefing summarizes the ranked fleet, groups units by fault type, and proposes a maintenance sequence.</div>
+  </section>
+
+  <section class="panel">
+    <details class="method" id="method">
+      <summary>How the analysis and ranking work</summary>
+      <div class="cols" id="method-body"></div>
+    </details>
+  </section>
+
+  <section class="panel" id="log-panel" hidden>
+    <div class="panel-h"><h2>Import log</h2></div>
+    <div class="log" id="log"></div>
+  </section>
+</div>
+<div id="tip" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+/*ENGINE-START*/
+const GASES = ['H2','CH4','C2H6','C2H4','C2H2','CO','CO2'];
+const FAULT_GASES = ['H2','CH4','C2H6','C2H4','C2H2'];
+const GAS_LABEL = {H2:'H₂',CH4:'CH₄',C2H6:'C₂H₆',C2H4:'C₂H₄',C2H2:'C₂H₂',CO:'CO',CO2:'CO₂'};
+const GAS_NAME = {H2:'Hydrogen',CH4:'Methane',C2H6:'Ethane',C2H4:'Ethylene',C2H2:'Acetylene',CO:'Carbon monoxide',CO2:'Carbon dioxide'};
+// Default limits (ppm) following the IEEE C57.104-2019 approach, age unknown.
+const LIMITS = {
+  sealed:{ L90:{H2:80,CH4:90,C2H6:90,C2H4:50,C2H2:1,CO:900,CO2:9000}, L95:{H2:200,CH4:150,C2H6:175,C2H4:100,C2H2:2,CO:1100,CO2:12500} },
+  open:  { L90:{H2:40,CH4:20,C2H6:15,C2H4:25,C2H2:2,CO:500,CO2:5000},  L95:{H2:90,CH4:50,C2H6:40,C2H4:80,C2H2:7,CO:600,CO2:7000} },
+  delta: {H2:40,CH4:30,C2H6:25,C2H4:20,C2H2:2,CO:250,CO2:2500},
+  rate:  {H2:20,CH4:10,C2H6:9,C2H4:7,C2H2:1,CO:100,CO2:1000}
+};
+const FAULTS = {
+  PD:{name:'Partial discharge',sev:8},
+  T1:{name:'Thermal fault < 300 °C',sev:4},
+  T2:{name:'Thermal fault 300–700 °C',sev:10},
+  T3:{name:'Thermal fault > 700 °C',sev:20},
+  D1:{name:'Low-energy discharge (sparking)',sev:14},
+  D2:{name:'High-energy discharge (arcing)',sev:22},
+  DT:{name:'Mixed thermal / electrical fault',sev:14}
+};
+const PRIORITY = {
+  P1:{label:'Immediate',icon:'▲',interval:'Resample within 7 days',tone:'critical'},
+  P2:{label:'Urgent',icon:'◆',interval:'Resample in 2–4 weeks',tone:'serious'},
+  P3:{label:'Planned',icon:'●',interval:'Resample in 3 months',tone:'warning'},
+  P4:{label:'Routine',icon:'✓',interval:'Resample in 12 months',tone:'good'}
+};
+const DAY = 86400000;
+const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+const num = v => (v==null||v===''||!isFinite(v)) ? null : +v;
+
+function duval(ch4,c2h4,c2h2){
+  const t = (ch4||0)+(c2h4||0)+(c2h2||0);
+  if (t<=0) return null;
+  const a=100*(ch4||0)/t, b=100*(c2h4||0)/t, c=100*(c2h2||0)/t;
+  let z;
+  if (a>=98) z='PD';
+  else if (c>=13 && b<23) z='D1';
+  else if ((c>=13 && b>=23 && b<40) || (c>=29 && b>=40)) z='D2';
+  else if (c<15 && b>=50) z='T3';
+  else if (c<4 && b>=20 && b<50) z='T2';
+  else if (c<4 && b<20) z='T1';
+  else z='DT';
+  return {zone:z,pCH4:a,pC2H4:b,pC2H2:c};
+}
+function ratio(a,b){ if(a==null||b==null) return null; if(b<=0) return a>0?Infinity:null; return a/b; }
+function iecRatios(s){
+  const r1=ratio(s.C2H2,s.C2H4), r2=ratio(s.CH4,s.H2), r3=ratio(s.C2H4,s.C2H6);
+  let code='Unresolved';
+  if (r2!=null && r3!=null){
+    const R1=r1==null?0:r1;
+    if (r2<0.1 && r3<0.2) code='PD';
+    else if (R1>1 && r2>=0.1 && r2<=0.5 && r3>1) code='D1';
+    else if (R1>=0.6 && R1<=2.5 && r2>=0.1 && r2<=1 && r3>2) code='D2';
+    else if (R1<0.2 && r2>1 && r3>4) code='T3';
+    else if (R1<0.1 && r2>1 && r3>=1 && r3<=4) code='T2';
+    else if (r2>1 && r3<1) code='T1';
+  }
+  return {r1,r2,r3,code};
+}
+function tdcgOf(s){ return ['H2','CH4','C2H6','C2H4','C2H2','CO'].reduce((t,g)=>t+(s[g]||0),0); }
+function tdcgCondition(t){ return t<=720?1:t<=1920?2:t<=4630?3:4; }
+
+function slopePerYear(pts){ // pts: [{t(ms), v}]
+  const n=pts.length; if(n<2) return null;
+  const mx=pts.reduce((a,p)=>a+p.t,0)/n, my=pts.reduce((a,p)=>a+p.v,0)/n;
+  let sxy=0,sxx=0; for(const p of pts){ sxy+=(p.t-mx)*(p.v-my); sxx+=(p.t-mx)**2; }
+  if (sxx===0) return null;
+  return sxy/sxx*DAY*365.25;
+}
+
+function analyzeUnit(unit, asOf){
+  const samples = unit.samples.slice().sort((a,b)=>a.date-b.date);
+  const last = samples[samples.length-1];
+  const prev = samples.length>1 ? samples[samples.length-2] : null;
+  const o2n2 = (last.O2!=null && last.N2>0) ? last.O2/last.N2 : null;
+  const lim = (o2n2!=null && o2n2>0.2) ? LIMITS.open : LIMITS.sealed;
+  const windowStart = last.date - 730*DAY;
+  const recent = samples.filter(s=>s.date>=windowStart);
+  const span = recent.length>1 ? (recent[recent.length-1].date-recent[0].date)/DAY : 0;
+  const gas = {};
+  let anyAbove90=false, status3=false, status2=false;
+  let trendX=0;
+  for (const g of GASES){
+    const v = last[g];
+    const L90=lim.L90[g], L95=lim.L95[g];
+    const pts = recent.filter(s=>s[g]!=null).map(s=>({t:+s.date,v:s[g]}));
+    let rate=null, rateKind='none';
+    if (pts.length>=3 && span>=120){ rate=slopePerYear(pts); rateKind='trend'; }
+    else if (pts.length>=2 && span>=45){ rate=slopePerYear(pts); rateKind='2-point'; }
+    const delta = (prev && prev[g]!=null && v!=null) ? v-prev[g] : null;
+    const above90 = v!=null && v>L90, above95 = v!=null && v>L95;
+    const dEx = delta!=null && delta>LIMITS.delta[g];
+    const rEx = rateKind==='trend' && rate!=null && rate>LIMITS.rate[g];
+    if (above90) anyAbove90=true;
+    if (above95 && (dEx||rEx)) status3=true;
+    if (above90 || ((dEx||rEx) && v>0.5*L90)) status2=true;
+    // trend intensity: only for gases present at meaningful levels
+    const meaningful = v!=null && (g==='C2H2' ? v>=0.5 : v>0.3*L90);
+    if (meaningful){
+      let x=0;
+      if (rate!=null) x = Math.max(x, (rateKind==='trend'?1:0.6)*rate/LIMITS.rate[g]);
+      if (delta!=null) x = Math.max(x, delta/LIMITS.delta[g]);
+      trendX = Math.max(trendX,x);
+    }
+    gas[g] = {v,L90,L95,rate,rateKind,delta,above90,above95,dEx,rEx};
+  }
+  const status = status3?3:status2?2:1;
+  const tdcg = tdcgOf(last), tdcgCond = tdcgCondition(tdcg);
+  const dv = duval(last.CH4,last.C2H4,last.C2H2);
+  const iec = iecRatios(last);
+  const faultActive = FAULT_GASES.some(g=>gas[g].above90 || ((gas[g].dEx||gas[g].rEx) && gas[g].v>0.5*gas[g].L90));
+  const fault = (faultActive && dv) ? dv.zone : null;
+  const co2co = ratio(last.CO2,last.CO);
+  let paper = null;
+  if (co2co!=null && last.CO!=null){
+    if (co2co<3 && last.CO>0.5*lim.L90.CO) paper = {flag:true, text:`CO₂/CO = ${co2co.toFixed(1)} (below 3): possible severe cellulose (paper) degradation`};
+    else if (co2co>10 && gas.CO2.above90) paper = {flag:true, text:`CO₂/CO = ${co2co.toFixed(1)} (above 10): mild overheating of cellulose`};
+    else if (gas.CO.above95) paper = {flag:true, text:`CO above the 95th-percentile limit: cellulose involvement likely`};
+    else paper = {flag:false, text:`CO₂/CO = ${co2co.toFixed(1)}: within the normal range (3–10)`};
+  }
+  // key gas
+  const norm = FAULT_GASES.map(g=>({g, r:(gas[g].v||0)/gas[g].L90})).sort((a,b)=>b.r-a.r)[0];
+  const KEY = {H2:'Hydrogen dominant: partial discharge / corona',CH4:'Methane dominant: low-temperature oil heating',C2H6:'Ethane dominant: low-temperature oil heating',C2H4:'Ethylene dominant: oil overheating',C2H2:'Acetylene dominant: arcing'};
+  const keyGas = norm.r>=1 ? {gas:norm.g, text:KEY[norm.g]} : {gas:null, text:'No gas above its 90th-percentile limit'};
+
+  // Scores
+  let cond = {1:8,2:38,3:68}[status];
+  if (fault) cond += FAULTS[fault].sev;
+  if (paper && paper.flag) cond += 10;
+  cond += [0,0,4,8,14][tdcgCond];
+  if (gas.C2H2.above90) cond += 6;
+  cond = clamp(cond,0,100);
+  let trend = trendX<=0.5 ? 0 : trendX<=1 ? (trendX-0.5)/0.5*40 : 40 + Math.min(trendX-1,2)/2*60;
+  trend = clamp(trend,0,100);
+  const crit = num(unit.criticality); const critV = crit==null?3:clamp(crit,1,5);
+  const yearNow = (asOf||new Date()).getFullYear();
+  let age = num(unit.age); if (age==null && num(unit.year)!=null && unit.year>1900) age = yearNow-unit.year;
+  const mva = num(unit.mva);
+  const risk = clamp((critV-1)/4*50 + (age==null?12:Math.min(age,50)/50*25) + (mva==null?12:Math.min(mva,300)/300*25),0,100);
+  let score = 0.55*cond + 0.25*trend + 0.20*risk;
+  let p = score>=60?'P1':score>=42?'P2':score>=26?'P3':'P4';
+  const severeFault = ['D1','D2','T3'].includes(fault) || gas.C2H2.above95;
+  if (status===3 && trend>=40 && severeFault) p='P1';
+  if (status===1 && trend<20) p = 'P4';
+  if (status===3 && (p==='P3'||p==='P4')) p='P2';
+  const health = Math.round(clamp(100 - (0.65*cond + 0.25*trend),0,100));
+
+  // Findings
+  const findings = [];
+  const fmt = v => v==null?'—':(v>=100?Math.round(v):+v.toFixed(1)).toLocaleString();
+  findings.push({lvl: status===3?'crit':status===2?'warn':'ok', text:`DGA status ${status} of 3${status===3?': gas above the 95th-percentile limit and still increasing':status===2?': gases above typical levels or increasing':': all gases within typical levels'}`});
+  for (const g of GASES){
+    const x=gas[g];
+    if (x.above95) findings.push({lvl:'crit',text:`${GAS_NAME[g]} ${fmt(x.v)} ppm exceeds the 95th-percentile limit (${x.L95} ppm)`});
+    else if (x.above90) findings.push({lvl:'warn',text:`${GAS_NAME[g]} ${fmt(x.v)} ppm exceeds the 90th-percentile limit (${x.L90} ppm)`});
+    if (x.rEx) findings.push({lvl: x.above95?'crit':'warn', text:`${GAS_NAME[g]} rising ${fmt(x.rate)} ppm/yr (limit ${LIMITS.rate[g]} ppm/yr)`});
+    else if (x.dEx) findings.push({lvl:'warn', text:`${GAS_NAME[g]} jumped ${fmt(x.delta)} ppm since the last sample (limit ${LIMITS.delta[g]} ppm)`});
+  }
+  if (fault) findings.push({lvl: FAULTS[fault].sev>=14?'crit':'warn', text:`Duval Triangle 1 points to ${FAULTS[fault].name} (zone ${fault})`});
+  if (paper && paper.flag) findings.push({lvl:'warn', text:paper.text});
+  if (tdcgCond>=3) findings.push({lvl:tdcgCond===4?'crit':'warn', text:`TDCG ${fmt(tdcg)} ppm is condition ${tdcgCond} (IEEE C57.104-2008)`});
+  if (o2n2!=null && o2n2>0.2) findings.push({lvl:'info', text:`O₂/N₂ = ${o2n2.toFixed(2)}: free-breathing or leaking seal; open-conservator limits applied`});
+  if (samples.length<3) findings.push({lvl:'info', text:`Only ${samples.length} sample${samples.length>1?'s':''} on record: the trend is less reliable`});
+  if (samples.length && asOf && (asOf-last.date)/DAY>400) findings.push({lvl:'warn', text:`Last sample is ${Math.round((asOf-last.date)/DAY/30)} months old`});
+
+  // Actions
+  const actions = [PRIORITY[p].interval + ' to confirm the result and the rate of change.'];
+  if (p==='P1') actions.push('Review loading and consider reducing load until the cause is found; alert operations.');
+  if (fault==='D1'||fault==='D2'||gas.C2H2.above90){
+    if (fault==='D2'||(gas.C2H2.rEx)) actions.push('Plan an outage for electrical tests: winding resistance, turns ratio, SFRA, and insulation power factor.');
+    actions.push('Check for an OLTC diverter-compartment leak into the main tank (compare main-tank and OLTC oil).');
+  }
+  if (fault==='T3'||fault==='T2') actions.push('Run infrared thermography; check bolted connections, core ground current, and cooling (pumps, fans, radiators).');
+  if (fault==='T3') actions.push('Plan an internal inspection if the rate continues; hot-metal faults above 700 °C can carbonize oil.');
+  if (fault==='T1') actions.push('Verify cooling performance and load history; low-temperature heating is often load- or cooling-related.');
+  if (fault==='PD'||(keyGas.gas==='H2')) actions.push('Measure partial discharge (acoustic or UHF) and check oil moisture and dielectric strength.');
+  if (fault==='DT') actions.push('Combine electrical tests and thermography to separate the thermal and discharge components.');
+  if (paper && paper.flag) actions.push('Test furans (2-FAL) to estimate paper degree of polymerization and remaining insulation life.');
+  if (o2n2!=null && o2n2>0.2) actions.push('Inspect the conservator bladder and gaskets for air ingress.');
+  if (p==='P4') actions.push('No corrective action needed. Continue routine monitoring.');
+
+  return {
+    id:unit.id, unit, samples, last, prev, lim, limKind: lim===LIMITS.open?'open':'sealed', o2n2, gas, status,
+    tdcg, tdcgCond, duval:dv, iec, fault, faultName: fault?FAULTS[fault].name:(paper&&paper.flag?'Cellulose degradation':'No active fault'),
+    paper, keyGas, co2co, cond:Math.round(cond), trend:Math.round(trend), risk:Math.round(risk), score:Math.round(score*10)/10,
+    priority:p, health, findings, actions, age, trendX
+  };
+}
+function analyzeFleet(units, asOf){
+  const res = units.filter(u=>u.samples.length).map(u=>analyzeUnit(u, asOf));
+  const order = {P1:0,P2:1,P3:2,P4:3};
+  res.sort((a,b)=> order[a.priority]-order[b.priority] || b.score-a.score);
+  res.forEach((r,i)=>r.rank=i+1);
+  return res;
+}
+if (typeof module!=='undefined') module.exports={analyzeFleet,analyzeUnit,duval,iecRatios,LIMITS};
+/*ENGINE-END*/
+</script>
+
+<script>
+/* ---------- Example data (illustrative, not real units) ---------- */
+const EXAMPLE = [
+  // id, location, mva, kv, year, criticality, samples: [date, H2, CH4, C2H6, C2H4, C2H2, CO, CO2, O2, N2]
+  ['T-101','Northgate GSU 1',250,345,2004,5,[
+    ['2024-03-12',18,12,8,6,0,310,2600,1800,52000],['2025-03-10',26,15,9,9,0.6,330,2750,1900,52500],
+    ['2025-09-08',58,24,10,22,6,350,2900,2000,53000],['2026-03-09',122,41,12,36,19,365,3050,2100,53500],
+    ['2026-09-14',260,70,14,70,60,380,3200,2200,54000]]],
+  ['T-204','Riverside T2',100,138,1998,4,[
+    ['2023-10-02',45,110,60,95,0.4,420,3800,900,54000],['2024-10-07',52,160,72,170,0.5,440,4000,950,54000],
+    ['2025-04-14',60,200,80,240,0.8,450,4100,1000,54500],['2025-10-13',72,260,92,330,1.1,460,4300,1000,55000],
+    ['2026-04-13',85,320,105,430,1.6,470,4400,1100,55000],['2026-10-12',98,390,118,540,2.2,480,4550,1100,55500]]],
+  ['T-410','Mill Road T1',150,230,1992,4,[
+    ['2024-02-05',40,30,20,18,0,700,2400,1500,53000],['2025-02-03',48,34,22,20,0,900,2600,1500,53000],
+    ['2025-08-04',55,36,23,21,0,1050,2750,1600,53500],['2026-02-02',62,38,24,22,0,1180,2900,1600,53500],
+    ['2026-08-03',70,40,25,23,0.3,1320,3000,1700,54000]]],
+  ['T-305','Harbor Point T3',40,69,2015,2,[
+    ['2025-01-20',120,8,2,0.2,0,150,1200,2500,51000],['2025-07-21',180,14,3,0.2,0,155,1250,2500,51000],
+    ['2026-01-19',240,19,4,0.3,0,160,1300,2600,51500],['2026-07-20',300,24,4,0.3,0,165,1350,2600,51500]]],
+  ['T-150','Westbrook T1',120,230,2010,4,[
+    ['2024-07-08',15,10,6,14,8,240,2300,1400,52000],['2025-07-07',16,11,6,15,9,250,2350,1400,52000],
+    ['2026-01-12',16,11,7,15,9,255,2400,1500,52500],['2026-07-13',17,12,7,16,9.5,260,2450,1500,52500]]],
+  ['T-118','Eastfield T1',60,115,2008,3,[
+    ['2024-05-13',30,95,70,60,0,380,3500,1200,51000],['2025-05-12',32,100,72,64,0,390,3600,1250,51000],
+    ['2026-05-11',33,104,74,66,0.2,395,3650,1300,51500]]],
+  ['T-087','Old Quarry T2',30,69,1979,3,[
+    ['2023-09-11',20,70,95,10,0,500,5200,2000,56000],['2024-09-09',22,75,100,11,0,520,5400,2000,56000],
+    ['2025-09-08',23,80,104,12,0,540,5600,2100,56500],['2026-09-14',24,84,108,12,0,555,5800,2100,56500]]],
+  ['T-233','Pine Hollow T1',20,34.5,2001,2,[
+    ['2024-11-04',25,10,6,12,0,280,3100,18000,62000],['2025-11-03',30,12,7,16,0,300,3400,18500,62000],
+    ['2026-11-02',34,14,8,28,0,320,3600,18500,62500]]],
+  ['T-122','Central T4',75,138,2012,3,[
+    ['2024-06-10',12,6,5,3,0,250,2100,1300,50000],['2025-06-09',13,7,5,3,0,260,2200,1300,50000],
+    ['2026-06-08',14,7,6,4,0,270,2300,1350,50500]]],
+  ['T-512','Solar Farm Collector',25,34.5,2022,2,[
+    ['2025-04-07',8,3,2,1,0,120,900,1100,49000],['2026-04-06',10,4,2,1,0,150,1100,1150,49000]]]
+];
+function exampleUnits(){
+  return EXAMPLE.map(([id,location,mva,kv,year,criticality,ss])=>({id,location,mva,kv,year,criticality,
+    samples:ss.map(s=>({date:new Date(s[0]+'T00:00:00'),H2:s[1],CH4:s[2],C2H6:s[3],C2H4:s[4],C2H2:s[5],CO:s[6],CO2:s[7],O2:s[8],N2:s[9]}))}));
+}
+
+/* ---------- State ---------- */
+const state = { units: exampleUnits(), isExample:true, results:[], selected:null, sources:[], asOf:new Date(), hidden:new Set(['CO','CO2']) };
+
+/* ---------- Helpers ---------- */
+const $ = s => document.querySelector(s);
+const esc = s => String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = v => v==null||!isFinite(v)?'—':(Math.abs(v)>=100?Math.round(v):+(+v).toFixed(1)).toLocaleString();
+const fmtDate = d => d? d.toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}) : '—';
+const isoDate = d => d? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` : '';
+function toast(msg){ const t=document.createElement('div'); t.className='toast'; t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(),2600); }
+function log(msg,err){ $('#log-panel').hidden=false; const d=document.createElement('div'); if(err) d.className='err'; d.textContent=msg; $('#log').prepend(d); }
+function pill(p){ return `<span class="pill ${p}"><i aria-hidden="true">${PRIORITY[p].icon}</i>${p} ${PRIORITY[p].label}</span>`; }
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+/* ---------- Render ---------- */
+function recompute(){
+  state.results = analyzeFleet(state.units, state.asOf);
+  if (!state.results.find(r=>r.id===state.selected)) state.selected = state.results[0]?.id ?? null;
+  renderAll();
+}
+function renderAll(){ renderSource(); renderKpis(); renderTable(); renderMatrix(); renderDetail(); renderMethod(); }
+
+function renderSource(){
+  const n = state.units.reduce((a,u)=>a+u.samples.length,0);
+  const bar = $('#source-bar');
+  if (state.isExample){
+    bar.innerHTML = `<span><strong>Example fleet</strong> · ${state.units.length} illustrative transformers, ${n} samples. Upload Excel, CSV, PDF, Word or a photo of a lab report to analyze your own units.</span><span class="sp"></span><span class="note">Or drop files anywhere on this page</span>`;
+  } else {
+    bar.innerHTML = `<span><strong>Your data</strong> · ${state.units.length} transformers, ${n} samples from ${state.sources.length} source${state.sources.length===1?'':'s'}: ${esc(state.sources.slice(-3).join(', '))}${state.sources.length>3?'…':''}</span><span class="sp"></span><button class="btn" id="btn-clear" type="button">Clear and show example</button>`;
+    $('#btn-clear').onclick = ()=>{ state.units=exampleUnits(); state.isExample=true; state.sources=[]; recompute(); };
+  }
+}
+function renderKpis(){
+  const R = state.results; const c = p=>R.filter(r=>r.priority===p).length;
+  const s3 = R.filter(r=>r.status===3).length;
+  const hs = R.map(r=>r.health).sort((a,b)=>a-b); const med = hs.length? hs[Math.floor((hs.length-1)/2)] : 0;
+  const rising = R.filter(r=>r.trend>=40).length;
+  $('#kpis').innerHTML = [
+    {v:R.length,l:'Transformers analyzed',s:`${R.reduce((a,r)=>a+r.samples.length,0)} DGA samples`},
+    {v:c('P1'),l:'P1 Immediate',s:'Act within days',tone:'critical'},
+    {v:c('P2'),l:'P2 Urgent',s:'Act within weeks',tone:'serious'},
+    {v:s3,l:'DGA status 3',s:'Above 95th pct. and rising',tone:s3?'critical':undefined},
+    {v:rising,l:'Gas levels rising fast',s:'Rate above IEEE limits'},
+    {v:med,l:'Median health index',s:'0 worst · 100 best'}
+  ].map(k=>`<div class="kpi"${k.tone?` data-tone="${k.tone}"`:''}><span class="l">${k.l}</span><span class="v">${k.v}</span><span class="s">${k.s}</span></div>`).join('');
+}
+function trendCell(r){
+  const top = GASES.map(g=>({g,x:r.gas[g]})).filter(o=>o.x.rate!=null && o.x.v!=null && (o.g==='C2H2'?o.x.v>=0.5:o.x.v>0.3*o.x.L90))
+    .map(o=>({...o,q:o.x.rate/LIMITS.rate[o.g]})).sort((a,b)=>b.q-a.q)[0];
+  if (!top || top.q<1) return `<span class="trend-flat">Stable</span>`;
+  return `<span class="trend-up">↑ ${GAS_LABEL[top.g]}</span> <span class="sub">${fmt(top.x.rate)}/yr</span>`;
+}
+function renderTable(){
+  const R = state.results;
+  $('#rank-table').innerHTML = `<thead><tr><th class="r">#</th><th>Transformer</th><th>Priority</th><th>Score</th><th class="r">Health</th><th>Indicated fault</th><th>Status</th><th class="r">TDCG</th><th>Trend</th><th>Last sample</th></tr></thead><tbody>${
+    R.map(r=>`<tr class="row${r.id===state.selected?' sel':''}" data-id="${esc(r.id)}" tabindex="0">
+      <td class="r num">${r.rank}</td>
+      <td><div class="uid">${esc(r.id)}</div><div class="sub">${esc(r.unit.location||'')}${r.unit.mva?` · ${fmt(r.unit.mva)} MVA`:''}</div></td>
+      <td>${pill(r.priority)}</td>
+      <td><div class="bar"><div class="track"><div class="fill" style="width:${r.score}%;background:var(--${PRIORITY[r.priority].tone})"></div></div><span class="num">${r.score.toFixed(0)}</span></div></td>
+      <td class="r num">${r.health}</td>
+      <td class="wrapcell">${esc(r.faultName)}${r.fault?` <span class="chip">${r.fault}</span>`:''}</td>
+      <td><span class="st s${r.status}"><b></b>${r.status}</span></td>
+      <td class="r num">${fmt(r.tdcg)}</td>
+      <td>${trendCell(r)}</td>
+      <td class="num sub">${isoDate(r.last.date)}</td></tr>`).join('')
+  }</tbody>`;
+  document.querySelectorAll('#rank-table tr.row').forEach(tr=>{
+    const go=()=>{ state.selected=tr.dataset.id; renderTable(); renderMatrix(); renderDetail(); $('#detail').scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'}); };
+    tr.onclick=go; tr.onkeydown=e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); go(); } };
+  });
+}
+
+/* Tooltip */
+const tip = $('#tip');
+function showTip(html, ev){ tip.innerHTML=html; tip.hidden=false; moveTip(ev); }
+function moveTip(ev){ const pad=14; let x=ev.clientX+pad, y=ev.clientY+pad; const w=tip.offsetWidth, h=tip.offsetHeight; if(x+w>innerWidth-8) x=ev.clientX-w-pad; if(y+h>innerHeight-8) y=ev.clientY-h-pad; tip.style.left=x+'px'; tip.style.top=y+'px'; }
+function hideTip(){ tip.hidden=true; }
+
+function renderMatrix(){
+  const W=420,H=330,m={l:44,r:14,t:12,b:40}; const iw=W-m.l-m.r, ih=H-m.t-m.b;
+  const X=v=>m.l+v/100*iw, Y=v=>m.t+ih-v/100*ih;
+  let g='';
+  for (const t of [0,25,50,75,100]){ g+=`<line class="grid" x1="${X(t)}" x2="${X(t)}" y1="${m.t}" y2="${m.t+ih}"/><line class="grid" x1="${m.l}" x2="${m.l+iw}" y1="${Y(t)}" y2="${Y(t)}"/><text x="${X(t)}" y="${m.t+ih+14}" text-anchor="middle">${t}</text><text x="${m.l-6}" y="${Y(t)+3}" text-anchor="end">${t}</text>`; }
+  g+=`<rect x="${X(50)}" y="${m.t}" width="${iw/2}" height="${ih/2}" fill="var(--critical-soft)" opacity=".55"/>`;
+  g+=`<text class="axis-title" x="${m.l+iw/2}" y="${H-6}" text-anchor="middle">Condition score (DGA severity + trend) →</text>`;
+  g+=`<text class="axis-title" transform="translate(12 ${m.t+ih/2}) rotate(-90)" text-anchor="middle">Risk score (criticality, age, size) →</text>`;
+  const order={P1:3,P2:2,P3:1,P4:0};
+  const pts = state.results.slice().sort((a,b)=>order[a.priority]-order[b.priority]);
+  for (const r of pts){
+    const cx = X(clamp(0.7*r.cond+0.3*r.trend,0,100)), cy=Y(r.risk); const sel=r.id===state.selected;
+    g+=`<g class="pt" data-id="${esc(r.id)}" style="cursor:pointer"><circle cx="${cx}" cy="${cy}" r="16" fill="transparent"/><circle cx="${cx}" cy="${cy}" r="${sel?8:6.5}" fill="var(--${PRIORITY[r.priority].tone})" stroke="var(--surface)" stroke-width="2"/>${sel?`<circle cx="${cx}" cy="${cy}" r="12" fill="none" stroke="var(--ink)" stroke-width="1.5"/>`:''}${(r.priority==='P1'||sel)?`<text x="${cx+11}" y="${cy-9}" style="fill:var(--ink);font-weight:600">${esc(r.id)}</text>`:''}</g>`;
+  }
+  $('#matrix').innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Scatter of condition score against risk score for each transformer">${g}</svg>`;
+  $('#matrix-legend').innerHTML = ['P1','P2','P3','P4'].map(p=>`<span><b style="background:var(--${PRIORITY[p].tone})"></b>${PRIORITY[p].icon} ${p} ${PRIORITY[p].label}</span>`).join('');
+  document.querySelectorAll('#matrix .pt').forEach(el=>{
+    const r = state.results.find(x=>x.id===el.dataset.id);
+    el.onmouseenter=ev=>showTip(`<b>${esc(r.id)}</b> ${esc(r.unit.location||'')}<div>${PRIORITY[r.priority].icon} ${r.priority} ${PRIORITY[r.priority].label} · score ${r.score.toFixed(0)}</div><div class="r"><span>Condition</span><span>${r.cond}</span></div><div class="r"><span>Trend</span><span>${r.trend}</span></div><div class="r"><span>Risk</span><span>${r.risk}</span></div><div>${esc(r.faultName)}</div>`,ev);
+    el.onmousemove=moveTip; el.onmouseleave=hideTip;
+    el.onclick=()=>{ state.selected=r.id; renderTable(); renderMatrix(); renderDetail(); };
+  });
+}
+
+function duvalSvg(r){
+  const W=340,H=310, top=[170,16], left=[16,282], right=[324,282];
+  const P=(a,b,c)=>{ a/=100;b/=100;c/=100; return [a*top[0]+b*right[0]+c*left[0], a*top[1]+b*right[1]+c*left[1]]; };
+  const poly=(pts)=>pts.map(p=>P(...p).map(v=>v.toFixed(1)).join(',')).join(' ');
+  const Z = {
+    PD:[[98,2,0],[100,0,0],[98,0,2]],
+    T1:[[98,2,0],[80,20,0],[76,20,4],[96,0,4],[98,0,2]],
+    T2:[[80,20,0],[50,50,0],[46,50,4],[76,20,4]],
+    T3:[[50,50,0],[0,100,0],[0,85,15],[35,50,15]],
+    D1:[[87,0,13],[0,0,100],[0,23,77],[64,23,13]],
+    D2:[[64,23,13],[47,40,13],[31,40,29],[0,71,29],[0,23,77]],
+    DT:[[96,0,4],[76,20,4],[46,50,4],[35,50,15],[0,85,15],[0,71,29],[31,40,29],[47,40,13],[64,23,13],[87,0,13]]
+  };
+  const LBL = {PD:[99,0.5,0.5],T1:[88,10,2],T2:[63,35,2],T3:[22,72,6],D1:[40,8,52],D2:[22,40,38],DT:[45,40,15]};
+  let s='';
+  for (const [k,pts] of Object.entries(Z)) s+=`<polygon points="${poly(pts)}" fill="var(--z-${k})" fill-opacity="${r.duval&&r.duval.zone===k?0.42:0.18}" stroke="var(--surface)" stroke-width="1.5"><title>${k}: ${FAULTS[k].name}</title></polygon>`;
+  s+=`<polygon points="${top} ${right} ${left}" fill="none" stroke="var(--line)" stroke-width="1"/>`;
+  for (const [k,p] of Object.entries(LBL)){ if(k==='PD') continue; const [x,y]=P(...p); s+=`<text x="${x}" y="${y+4}" text-anchor="middle" style="fill:var(--ink);font-weight:600;font-size:11px">${k}</text>`; }
+  const [px,py]=P(98.6,0.7,0.7); s+=`<text x="${px+16}" y="${py+6}" style="fill:var(--ink);font-weight:600;font-size:10px">PD</text>`;
+  // history path
+  const hist = r.samples.map(x=>duval(x.CH4,x.C2H4,x.C2H2)).filter(Boolean);
+  if (hist.length>1) s+=`<polyline points="${hist.map(d=>P(d.pCH4,d.pC2H4,d.pC2H2).map(v=>v.toFixed(1)).join(',')).join(' ')}" fill="none" stroke="var(--ink-2)" stroke-width="1.5" stroke-dasharray="3 3"/>`;
+  hist.forEach((d,i)=>{ const [x,y]=P(d.pCH4,d.pC2H4,d.pC2H2); const lastPt=i===hist.length-1; s+=`<circle cx="${x}" cy="${y}" r="${lastPt?6.5:3.5}" fill="${lastPt?'var(--ink)':'var(--ink-2)'}" stroke="var(--surface)" stroke-width="2"/>`; });
+  s+=`<text x="${top[0]}" y="${top[1]-4}" text-anchor="middle">%CH₄</text><text x="${right[0]}" y="${right[1]+18}" text-anchor="end">%C₂H₄ →</text><text x="${left[0]}" y="${left[1]+18}">← %C₂H₂</text>`;
+  return `<svg viewBox="0 -6 ${W} ${H+12}" role="img" aria-label="Duval Triangle 1 with sample history">${s}</svg>`;
+}
+
+function trendSvg(r){
+  const W=Math.round(clamp(($('#detail')?.clientWidth||700)-34,340,1300)),H=W<600?240:300,m={l:52,r:16,t:14,b:30}; const iw=W-m.l-m.r, ih=H-m.t-m.b;
+  const S=r.samples; const shown=GASES.filter(g=>!state.hidden.has(g));
+  const t0=+S[0].date, t1=+S[S.length-1].date; const tspan=Math.max(t1-t0,DAY*30);
+  const T0 = t0 - (t1===t0?tspan/2:tspan*0.03), T1 = t0 + (t1===t0?tspan/2:tspan*1.03);
+  let vmax=1; for(const g of shown) for(const x of S) if(x[g]>vmax) vmax=x[g];
+  const lmin=0, lmax=Math.ceil(Math.log10(vmax*1.3));
+  const X=t=>m.l+(t-T0)/(T1-T0)*iw, Y=v=>m.t+ih-(Math.log10(Math.max(v,1))-lmin)/(lmax-lmin)*ih;
+  let s='';
+  for (let e=lmin;e<=lmax;e++){ const v=10**e; s+=`<line class="grid" x1="${m.l}" x2="${m.l+iw}" y1="${Y(v)}" y2="${Y(v)}"/><text x="${m.l-8}" y="${Y(v)+3}" text-anchor="end">${v.toLocaleString()}</text>`; }
+  // year ticks
+  const y0=new Date(T0).getFullYear(), y1=new Date(T1).getFullYear();
+  for (let y=y0;y<=y1+1;y++){ const t=+new Date(y,0,1); if(t<T0||t>T1) continue; s+=`<line class="grid" x1="${X(t)}" x2="${X(t)}" y1="${m.t}" y2="${m.t+ih}"/><text x="${X(t)}" y="${m.t+ih+16}" text-anchor="middle">${y}</text>`; }
+  s+=`<line class="axis" x1="${m.l}" x2="${m.l+iw}" y1="${m.t+ih}" y2="${m.t+ih}"/>`;
+  for (const g of shown){
+    const pts=S.filter(x=>x[g]!=null).map(x=>[X(+x.date),Y(x[g])]);
+    if (pts.length>1) s+=`<polyline points="${pts.map(p=>p.map(v=>v.toFixed(1)).join(',')).join(' ')}" fill="none" stroke="var(--g-${g})" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    pts.forEach((p,i)=>{ if(i===pts.length-1) s+=`<circle cx="${p[0]}" cy="${p[1]}" r="4.5" fill="var(--g-${g})" stroke="var(--surface)" stroke-width="2"/>`; });
+  }
+  s+=`<line id="xh" x1="0" x2="0" y1="${m.t}" y2="${m.t+ih}" stroke="var(--ink-2)" stroke-width="1" stroke-dasharray="2 3" visibility="hidden"/>`;
+  s+=`<rect id="trend-hit" x="${m.l}" y="${m.t}" width="${iw}" height="${ih}" fill="transparent"/>`;
+  return {svg:`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Gas concentration history, log scale, ppm">${s}</svg>`, X, T0, T1, m, iw, W};
+}
+
+function renderDetail(){
+  const r = state.results.find(x=>x.id===state.selected);
+  const el=$('#detail');
+  if (!r){ el.innerHTML='<p class="muted">No transformers loaded yet. Upload lab results to begin.</p>'; return; }
+  const u=r.unit;
+  const meta=[u.location, u.kv?`${fmt(u.kv)} kV`:null, u.mva?`${fmt(u.mva)} MVA`:null, r.age!=null?`${r.age} years old`:null, u.criticality!=null?`Criticality ${u.criticality}/5`:null, `${r.samples.length} samples`, `Last sampled ${fmtDate(r.last.date)}`].filter(Boolean);
+  const gasRows = GASES.map(g=>{ const x=r.gas[g]; const cls=x.above95?'over95':x.above90?'over90':'';
+    return `<tr><td><span class="dot" style="background:var(--g-${g})"></span>${GAS_LABEL[g]} <span class="sub">${GAS_NAME[g]}</span></td><td class="r num ${cls}">${fmt(x.v)}</td><td class="r num sub">${x.L90}</td><td class="r num sub">${x.L95}</td><td class="r num">${x.delta==null?'—':(x.delta>0?'+':'')+fmt(x.delta)}</td><td class="r num ${x.rEx?'over95':''}">${x.rate==null?'—':(x.rate>0?'+':'')+fmt(x.rate)}${x.rateKind==='2-point'?'<span class="sub">*</span>':''}</td></tr>`; }).join('');
+  const iec=r.iec; const rf=v=>v==null?'—':v===Infinity?'∞':v.toFixed(2);
+  const tr = trendSvg(r);
+  el.innerHTML = `
+    <div class="detail-h">
+      <div><div class="eyebrow">Rank ${r.rank} of ${state.results.length} · unit diagnosis</div><h2 style="font-size:1.35rem">${esc(r.id)} ${pill(r.priority)}</h2><div class="meta">${meta.map(esc).map(x=>`<span>${x}</span>`).join('')}</div></div>
+      <button class="btn primary" id="btn-unit-ai" type="button">AI engineering assessment</button>
+    </div>
+    <div class="scores">
+      <div class="score"><div class="l">Priority score</div><div class="v">${r.score.toFixed(0)}</div></div>
+      <div class="score"><div class="l">Health index</div><div class="v">${r.health}</div></div>
+      <div class="score"><div class="l">Condition</div><div class="v">${r.cond}</div></div>
+      <div class="score"><div class="l">Trend</div><div class="v">${r.trend}</div></div>
+      <div class="score"><div class="l">Risk</div><div class="v">${r.risk}</div></div>
+      <div class="score"><div class="l">DGA status · TDCG cond.</div><div class="v"><span class="st s${r.status}" style="font-size:1.05rem"><b></b>${r.status}</span> · ${r.tdcgCond}</div></div>
+    </div>
+    <div class="detail-grid">
+      <div class="c-7">
+        <div class="subhead"><h3>Findings</h3><span class="note">${esc(r.faultName)}</span></div>
+        <ul class="findings">${r.findings.map(f=>`<li class="${f.lvl}"><span class="ic" aria-hidden="true">${{crit:'▲',warn:'◆',info:'i',ok:'✓'}[f.lvl]}</span><span>${esc(f.text)}</span></li>`).join('')}</ul>
+        <div class="actions-box" style="margin-top:14px"><h3>Recommended actions</h3><ol>${r.actions.map(a=>`<li>${esc(a)}</li>`).join('')}</ol></div>
+      </div>
+      <div class="c-5 chart">
+        <div class="subhead"><h3>Duval Triangle 1</h3><span class="note">${r.duval?`${r.duval.zone} · CH₄ ${r.duval.pCH4.toFixed(0)}% · C₂H₄ ${r.duval.pC2H4.toFixed(0)}% · C₂H₂ ${r.duval.pC2H2.toFixed(0)}%`:'No hydrocarbons'}</span></div>
+        ${duvalSvg(r)}
+        <p class="note" style="margin:6px 0 0">Dashed line traces earlier samples; the dark dot is the latest.${!r.fault&&r.duval?' Gas levels are low, so the zone is not treated as an active fault.':''}</p>
+      </div>
+      <div class="c-12 chart">
+        <div class="subhead"><h3>Gas history <span class="note">ppm, log scale</span></h3></div>
+        <div id="trend-chart">${tr.svg}</div>
+        <div class="legend" id="trend-legend">${GASES.map(g=>`<button type="button" data-g="${g}" aria-pressed="${!state.hidden.has(g)}"><b style="background:var(--g-${g})"></b>${GAS_LABEL[g]}</button>`).join('')}</div>
+      </div>
+      <div class="c-7">
+        <div class="subhead"><h3>Latest sample against limits</h3><span class="note">${r.limKind==='open'?'Open-conservator':'Sealed'} limits, ppm</span></div>
+        <div class="tbl-wrap"><table class="gas-tbl"><thead><tr><th>Gas</th><th class="r">Latest</th><th class="r">90th</th><th class="r">95th</th><th class="r">Δ last</th><th class="r">Rate /yr</th></tr></thead><tbody>${gasRows}</tbody></table></div>
+        <p class="note">* Two-point rate, shown for reference. Rates use samples from the last two years.</p>
+      </div>
+      <div class="c-5">
+        <div class="subhead"><h3>Diagnostic methods</h3></div>
+        <div class="diag">
+          <div class="diag-row"><span class="k">Duval Triangle 1</span><span>${r.duval?`${r.duval.zone}: ${FAULTS[r.duval.zone].name}`:'—'}</span></div>
+          <div class="diag-row"><span class="k">IEC 60599 ratios</span><span>${iec.code==='Unresolved'?'No matching code':`${iec.code}: ${FAULTS[iec.code].name}`}<br><span class="sub mono">C₂H₂/C₂H₄ ${rf(iec.r1)} · CH₄/H₂ ${rf(iec.r2)} · C₂H₄/C₂H₆ ${rf(iec.r3)}</span></span></div>
+          <div class="diag-row"><span class="k">Key gas</span><span>${esc(r.keyGas.text)}</span></div>
+          <div class="diag-row"><span class="k">Paper insulation</span><span>${r.paper?esc(r.paper.text):'CO/CO₂ not reported'}</span></div>
+          <div class="diag-row"><span class="k">TDCG</span><span class="num">${fmt(r.tdcg)} ppm · condition ${r.tdcgCond}</span></div>
+          <div class="diag-row"><span class="k">O₂/N₂</span><span>${r.o2n2==null?'Not reported':`${r.o2n2.toFixed(2)} · ${r.o2n2>0.2?'free-breathing / air ingress':'sealed / low oxygen'}`}</span></div>
+        </div>
+      </div>
+      <div class="c-12 ai">
+        <div class="subhead"><h3>AI engineering assessment <span class="badge-ai">AI</span></h3><button class="btn" id="btn-unit-stop" type="button" hidden>Stop</button></div>
+        <div class="ai-out placeholder" id="unit-out">Claude reviews this unit's full sample history, the computed diagnostics and the ranking, then writes a diagnosis, likely root causes, risk if untreated and a step-by-step action plan.</div>
+      </div>
+    </div>`;
+  document.querySelectorAll('#trend-legend button').forEach(b=>b.onclick=()=>{ const g=b.dataset.g; state.hidden.has(g)?state.hidden.delete(g):state.hidden.add(g); if(state.hidden.size===GASES.length) state.hidden.delete(g); renderDetail(); });
+  // crosshair
+  const hit=$('#trend-hit'), xh=$('#xh'), svg=$('#trend-chart svg');
+  hit.onmousemove=ev=>{
+    const pt=svg.getBoundingClientRect(); const sx=(ev.clientX-pt.left)/pt.width*tr.W;
+    let best=null,bd=Infinity; for(const s of r.samples){ const d=Math.abs(tr.X(+s.date)-sx); if(d<bd){bd=d;best=s;} }
+    if(!best) return; const x=tr.X(+best.date); xh.setAttribute('x1',x); xh.setAttribute('x2',x); xh.setAttribute('visibility','visible');
+    showTip(`<b>${fmtDate(best.date)}</b>${GASES.filter(g=>!state.hidden.has(g)).map(g=>`<div class="r"><span><span class="sw" style="background:var(--g-${g})"></span>${GAS_LABEL[g]}</span><span>${fmt(best[g])}</span></div>`).join('')}`,ev);
+  };
+  hit.onmouseleave=()=>{ xh.setAttribute('visibility','hidden'); hideTip(); };
+  $('#btn-unit-ai').onclick=()=>runUnitAI(r);
+}
+
+function renderMethod(){
+  const L=LIMITS.sealed, O=LIMITS.open;
+  $('#method-body').innerHTML = `
+  <div><h3>Diagnosis</h3>
+   <p><b>Status 1–3</b> follows the IEEE C57.104-2019 approach: each gas is compared with 90th and 95th percentile limits, and with the change since the last sample and the rate of increase over the last two years. Status 3 means a gas is above its 95th percentile limit and still rising.</p>
+   <p><b>Fault type</b> comes from Duval Triangle 1 (CH₄, C₂H₄, C₂H₂), checked against IEC 60599 gas ratios and the key-gas method. A zone counts as an active fault only when a fault gas is elevated or rising.</p>
+   <p><b>Paper insulation</b> uses CO and the CO₂/CO ratio. <b>TDCG</b> uses the IEEE C57.104-2008 conditions 1–4.</p></div>
+  <div><h3>Ranking</h3>
+   <p><b>Condition</b> (0–100): status, fault severity (D2 and T3 highest), paper involvement, TDCG and acetylene.</p>
+   <p><b>Trend</b> (0–100): fastest gas increase compared with the IEEE rate and change limits.</p>
+   <p><b>Risk</b> (0–100): criticality 1–5 (default 3), age and MVA rating, taken from your file when present.</p>
+   <p><b>Priority score</b> = 55% condition + 25% trend + 20% risk. P1 ≥ 60, P2 ≥ 42, P3 ≥ 26. A status-3 unit with a fast-rising arcing or hot-metal fault is always P1.</p></div>
+  <div><h3>Default limits, ppm</h3>
+   <div class="tbl-wrap"><table class="gas-tbl"><thead><tr><th>Gas</th><th class="r">90th</th><th class="r">95th</th><th class="r">90th open</th><th class="r">Δ</th><th class="r">Rate/yr</th></tr></thead><tbody>
+   ${GASES.map(g=>`<tr><td>${GAS_LABEL[g]}</td><td class="r num">${L.L90[g]}</td><td class="r num">${L.L95[g]}</td><td class="r num">${O.L90[g]}</td><td class="r num">${LIMITS.delta[g]}</td><td class="r num">${LIMITS.rate[g]}</td></tr>`).join('')}
+   </tbody></table></div>
+   <p class="note">Screening tool. Confirm results against your utility's standards and a resample before taking a unit out of service.</p></div>`;
+}
+
+/* ---------- Import: column mapping ---------- */
+const FIELDS = [
+  ['id','Transformer ID',/^(transformer|xfmr|xfrm|tx|unit|asset|equipment|apparatus|serial|tag|name|id|designation|description)/],
+  ['date','Sample date',/(sample.*date|date.*sample|sampl(ed|ing)|^date|date$|collected|drawn)/],
+  ['H2','H₂',/^(h2|hydrogen)(?!o)/],['CH4','CH₄',/^(ch4|methane)/],['C2H6','C₂H₆',/^(c2h6|ethane)/],['C2H4','C₂H₄',/^(c2h4|ethylene|ethene)/],
+  ['C2H2','C₂H₂',/^(c2h2|acetylene|ethyne)/],['CO','CO',/^(co(?!2|n|m|r|o|u|l|d|s)|carbon ?monoxide)/],['CO2','CO₂',/^(co2|carbon ?dioxide)/],
+  ['O2','O₂',/^(o2|oxygen)/],['N2','N₂',/^(n2|nitrogen)/],
+  ['location','Location / site',/(location|site|substation|station|plant)/],
+  ['mva','MVA rating',/(mva|kva|rating|capacity|power)/],['kv','Voltage kV',/(kv|voltage)/],
+  ['year','Year built',/(year|manufactur|built|commission|install)/],['age','Age (years)',/^age/],
+  ['criticality','Criticality 1–5',/(critical|importance|consequence|risk class)/]
+];
+const normH = h => String(h??'').toLowerCase().replace(/[₀-₉]/g,c=>'0123456789'['₀₁₂₃₄₅₆₇₈₉'.indexOf(c)]).replace(/[\s_\-\.\(\)\[\]:]+/g,' ').trim();
+const compact = h => normH(h).replace(/ /g,'');
+function guessMapping(headers){
+  const map={}; const used=new Set();
+  for (const [key,,re] of FIELDS){
+    for (let i=0;i<headers.length;i++){ if(used.has(i)) continue; const h=normH(headers[i]), c=compact(headers[i]); if(!h) continue;
+      if (re.test(c) || re.test(h)){ if(key==='H2' && /h2o|water|moist/.test(c)) continue; if(key==='id' && /date/.test(c)) continue; map[key]=i; used.add(i); break; } }
+  }
+  return map;
+}
+function findHeaderRow(rows){
+  let best=0,bs=-1;
+  for (let i=0;i<Math.min(rows.length,30);i++){ const m=guessMapping(rows[i]||[]); const sc=['H2','CH4','C2H6','C2H4','C2H2','CO','CO2'].filter(k=>k in m).length; if(sc>bs){bs=sc;best=i;} }
+  return {row:best,score:bs};
+}
+function parseNum(v){
+  if (v==null||v==='') return null; if (typeof v==='number') return isFinite(v)?v:null;
+  let s=String(v).trim().toLowerCase(); if(!s) return null;
+  if (/^(nd|n\.d\.?|bdl|not detected|none|-|—|<dl)$/.test(s)) return 0;
+  const lt=s.match(/^<\s*([\d.,]+)/); if (lt) return parseFloat(lt[1].replace(',','.'))/2;
+  s=s.replace(/,(?=\d{3}\b)/g,'').replace(',','.'); const n=parseFloat(s.replace(/[^\d.eE+-]/g,'')); return isFinite(n)?n:null;
+}
+function parseDate(v){
+  if (v==null||v==='') return null; if (v instanceof Date) return isNaN(v)?null:v;
+  if (typeof v==='number'){ if (v>20000 && v<80000) return new Date(Math.round((v-25569)*DAY) + new Date().getTimezoneOffset()*60000); if (v>1900&&v<2100) return new Date(v,6,1); return null; }
+  const s=String(v).trim(); let m;
+  if ((m=s.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/))) return new Date(+m[1],+m[2]-1,+m[3]);
+  if ((m=s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{2,4})/))){ let y=+m[3]; if(y<100) y+=2000; let a=+m[1], b=+m[2]; if(a>12) return new Date(y,b-1,a); return new Date(y,a-1,b); }
+  const d=new Date(s); return isNaN(d)?null:d;
+}
+/* long format: id, date, gas/parameter, value -> pivot */
+function maybePivot(rows){
+  const h=rows[0].map(compact);
+  const gi=h.findIndex(x=>/^(gas|parameter|analyte|component|test)/.test(x)), vi=h.findIndex(x=>/^(value|result|ppm|concentration|reading)/.test(x));
+  if (gi<0||vi<0) return null;
+  const keyCols = rows[0].map((_,i)=>i).filter(i=>i!==gi&&i!==vi);
+  const groups=new Map(); const gasCols=new Set();
+  for (const r of rows.slice(1)){ if(!r||!r.length) continue; const k=keyCols.map(i=>String(r[i]??'')).join('\u0001'); if(!groups.has(k)) groups.set(k,{base:keyCols.map(i=>r[i]),vals:{}}); const gname=String(r[gi]??'').trim(); if(!gname) continue; gasCols.add(gname); groups.get(k).vals[gname]=r[vi]; }
+  const gl=[...gasCols];
+  return [[...keyCols.map(i=>rows[0][i]),...gl], ...[...groups.values()].map(g=>[...g.base,...gl.map(n=>g.vals[n]??null)])];
+}
+function rowsToSamples(rows, map){
+  const out=[]; let synth=0;
+  rows.forEach((r,idx)=>{
+    if(!r) return; const get=k=>map[k]==null?null:r[map[k]];
+    const s={}; let any=0; for (const g of [...GASES,'O2','N2']){ s[g]=parseNum(get(g)); if(s[g]!=null && GASES.includes(g)) any++; }
+    if (any<3) return;
+    s.id = String(get('id')??'').trim() || 'Unit 1';
+    let d=parseDate(get('date')); if(!d){ d=new Date(2000,0,1+idx); synth++; } s.date=d;
+    for (const k of ['location']) s[k]=get(k)!=null?String(get(k)).trim():null;
+    for (const k of ['mva','kv','year','age','criticality']) s[k]=parseNum(get(k));
+    out.push(s);
+  });
+  return {samples:out, synth};
+}
+function mergeSamples(samples, sourceName){
+  if (state.isExample){ state.units=[]; state.isExample=false; state.sources=[]; }
+  const byId=new Map(state.units.map(u=>[u.id,u])); let added=0;
+  for (const s of samples){
+    let u=byId.get(s.id); if(!u){ u={id:s.id,samples:[]}; byId.set(s.id,u); state.units.push(u); }
+    for (const k of ['location','mva','kv','year','age','criticality']) if (s[k]!=null && s[k]!=='') u[k]=s[k];
+    const smp={date:s.date}; for (const g of [...GASES,'O2','N2']) smp[g]=s[g];
+    const dup=u.samples.findIndex(x=>+x.date===+smp.date); if(dup>=0) u.samples[dup]=smp; else u.samples.push(smp); added++;
+  }
+  state.sources.push(sourceName);
+  return added;
+}
+
+/* mapping UI queue */
+const mapQueue=[]; let mapCurrent=null;
+function queueTable(rows, name){
+  rows = rows.filter(r=>r && r.some(c=>c!=null && String(c).trim()!==''));
+  if (rows.length<2) return false;
+  const {row,score}=findHeaderRow(rows);
+  let header=rows[row], body=rows.slice(row+1);
+  if (score<3){ const piv=maybePivot(rows.slice(row)); if(piv){ header=piv[0]; body=piv.slice(1); } else return false; }
+  const map=guessMapping(header);
+  if (['H2','CH4','C2H6','C2H4','C2H2'].filter(k=>k in map).length<3) return false;
+  mapQueue.push({header,body,map,name}); if(!mapCurrent) nextMap(); return true;
+}
+function nextMap(){
+  mapCurrent=mapQueue.shift()||null; const p=$('#map-panel');
+  if(!mapCurrent){ p.hidden=true; return; }
+  const {header,map,name,body}=mapCurrent; p.hidden=false;
+  $('#map-note').textContent=`${name} · ${body.length} rows. Columns were matched automatically; adjust any that are wrong.`;
+  $('#map-grid').innerHTML = FIELDS.map(([k,label])=>`<label for="map-${k}">${label}<select id="map-${k}" data-k="${k}"><option value="">— not in file —</option>${header.map((h,i)=>`<option value="${i}"${map[k]===i?' selected':''}>${esc(h??`Column ${i+1}`)}</option>`).join('')}</select></label>`).join('');
+  p.scrollIntoView({block:'nearest'});
+}
+$('#btn-map-apply').onclick=()=>{
+  const map={}; document.querySelectorAll('#map-grid select').forEach(s=>{ if(s.value!=='') map[s.dataset.k]=+s.value; });
+  const {samples,synth}=rowsToSamples(mapCurrent.body,map);
+  if (!samples.length){ log(`${mapCurrent.name}: no rows with at least three gas values.`,true); }
+  else { const n=mergeSamples(samples,mapCurrent.name); log(`${mapCurrent.name}: imported ${n} samples for ${new Set(samples.map(s=>s.id)).size} transformers.${synth?` ${synth} rows had no date; row order was used for the trend.`:''}${map.id==null?' No ID column: all rows treated as one unit.':''}`); recompute(); toast(`Imported ${n} samples`); }
+  nextMap();
+};
+$('#btn-map-cancel').onclick=()=>nextMap();
+
+/* ---------- File handling ---------- */
+function loadScript(src){ return new Promise((res,rej)=>{ if(document.querySelector(`script[src="${src}"]`)) return res(); const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=()=>rej(new Error('Could not load '+src)); document.head.appendChild(s); }); }
+async function pdfText(buf){
+  await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js');
+  const lib=window.pdfjsLib; lib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  const doc=await lib.getDocument({data:buf, isEvalSupported:false}).promise; let out='';
+  for (let i=1;i<=Math.min(doc.numPages,30);i++){ const pg=await doc.getPage(i); const tc=await pg.getTextContent();
+    let lastY=null; for (const it of tc.items){ const y=it.transform[5]; if(lastY!=null && Math.abs(y-lastY)>3) out+='\n'; else if(lastY!=null) out+='\t'; out+=it.str; lastY=y; } out+='\n\n'; }
+  return out;
+}
+async function docxText(buf){ await loadScript('https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js'); const r=await window.mammoth.extractRawText({arrayBuffer:buf}); return r.value; }
+
+async function handleFiles(files){
+  for (const f of files){
+    const ext=(f.name.split('.').pop()||'').toLowerCase();
+    try{
+      if (['xlsx','xls','xlsm','ods','csv','tsv'].includes(ext)){
+        const buf=await f.arrayBuffer();
+        const wb=XLSX.read(buf,{type:'array',cellDates:true});
+        let ok=false;
+        for (const sn of wb.SheetNames){ const rows=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:true,defval:null}); if(queueTable(rows,`${f.name}${wb.SheetNames.length>1?' › '+sn:''}`)) ok=true; }
+        if (!ok){ log(`${f.name}: no gas columns found in a table. Sending the text to Claude to extract.`); const txt=wb.SheetNames.map(sn=>XLSX.utils.sheet_to_csv(wb.Sheets[sn])).join('\n\n'); await aiExtract(txt,f.name); }
+      } else if (ext==='json'){
+        const data=JSON.parse(await f.text()); const arr=Array.isArray(data)?data:(data.samples||data.data||[]);
+        const keys=[...new Set(arr.flatMap(o=>Object.keys(o)))]; const rows=[keys,...arr.map(o=>keys.map(k=>o[k]))];
+        if(!queueTable(rows,f.name)) log(`${f.name}: no gas fields found.`,true);
+      } else if (ext==='txt'){
+        const txt=await f.text(); if(!tryDelimited(txt,f.name)) await aiExtract(txt,f.name);
+      } else if (ext==='pdf'){
+        let txt=''; try{ txt=await pdfText(await f.arrayBuffer()); }catch(e){ log(`${f.name}: could not read PDF text (${e.message}). Try pasting the report text instead.`,true); continue; }
+        if(!txt.trim()){ log(`${f.name}: the PDF has no text layer (scanned). Upload a photo of the page instead and Claude will read it.`,true); continue; }
+        await aiExtract(txt,f.name);
+      } else if (ext==='docx'){
+        const txt=await docxText(await f.arrayBuffer()); await aiExtract(txt,f.name);
+      } else if (['png','jpg','jpeg','webp'].includes(ext)){
+        await aiExtract('',f.name,[f]);
+      } else log(`${f.name}: file type .${ext} is not supported.`,true);
+    }catch(e){ log(`${f.name}: ${e.message||e}`,true); }
+  }
+}
+function tryDelimited(txt,name){
+  try{ const wb=XLSX.read(txt,{type:'string',cellDates:true}); const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,raw:true,defval:null}); return queueTable(rows,name); }catch{ return false; }
+}
+$('#btn-upload').onclick=()=>$('#file-input').click();
+$('#file-input').onchange=e=>{ handleFiles([...e.target.files]); e.target.value=''; };
+let dragDepth=0;
+addEventListener('dragenter',e=>{ if(e.dataTransfer?.types?.includes('Files')){ dragDepth++; $('#app').classList.add('drop-active'); } });
+addEventListener('dragleave',()=>{ dragDepth=Math.max(0,dragDepth-1); if(!dragDepth) $('#app').classList.remove('drop-active'); });
+addEventListener('dragover',e=>{ if(e.dataTransfer?.types?.includes('Files')) e.preventDefault(); });
+addEventListener('drop',e=>{ if(!e.dataTransfer?.files?.length) return; e.preventDefault(); dragDepth=0; $('#app').classList.remove('drop-active'); handleFiles([...e.dataTransfer.files]); });
+
+$('#btn-paste').onclick=()=>{ $('#paste-panel').hidden=false; $('#paste-text').focus(); };
+$('#btn-paste-cancel').onclick=()=>{ $('#paste-panel').hidden=true; };
+$('#btn-paste-go').onclick=async()=>{ const t=$('#paste-text').value; if(!t.trim()) return; if(!tryDelimited(t,'Pasted data')) await aiExtract(t,'Pasted report'); $('#paste-panel').hidden=true; $('#paste-text').value=''; };
+
+/* ---------- Export ---------- */
+function rankingRows(){
+  const head=['Rank','Transformer','Location','Priority','Priority label','Score','Health index','Condition','Trend','Risk','DGA status','Indicated fault','Duval zone','IEC code','TDCG ppm','TDCG condition','Last sample',...GASES.map(g=>g+' ppm'),'Next step','Recommended actions'];
+  return [head,...state.results.map(r=>[r.rank,r.id,r.unit.location||'',r.priority,PRIORITY[r.priority].label,r.score,r.health,r.cond,r.trend,r.risk,r.status,r.faultName,r.duval?.zone||'',r.iec.code,Math.round(r.tdcg),r.tdcgCond,isoDate(r.last.date),...GASES.map(g=>r.last[g]??''),PRIORITY[r.priority].interval,r.actions.join(' | ')])];
+}
+async function saveFile(filename,data,mime){
+  try{ const dl=await window.claude?.use?.('downloads'); if(dl){ await dl.save({filename,data}); toast('Saved '+filename); return; } }catch(e){ if(e?.code==='declined') return; }
+  try{ const url=URL.createObjectURL(new Blob([data],{type:mime})); const a=document.createElement('a'); a.href=url; a.download=filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),4000); }catch{ toast('Download is not available here'); }
+}
+$('#btn-export').onclick=()=>{
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(rankingRows()),'Priority ranking');
+  const hist=[['Transformer','Date',...GASES,'O2','N2']]; for(const r of state.results) for(const s of r.samples) hist.push([r.id,isoDate(s.date),...GASES.map(g=>s[g]??''),s.O2??'',s.N2??'']);
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(hist),'Sample history');
+  const out=XLSX.write(wb,{bookType:'xlsx',type:'array'});
+  saveFile(`dga-priority-ranking-${isoDate(new Date())}.xlsx`, new Uint8Array(out), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+};
+$('#btn-template').onclick=()=>{
+  const rows=[['Transformer ID','Location','MVA','kV','Year built','Criticality (1-5)','Sample date','H2','CH4','C2H6','C2H4','C2H2','CO','CO2','O2','N2'],
+    ['T-001','Example Substation',50,138,2005,3,'2026-01-15',25,12,8,6,0,300,2500,1500,52000]];
+  saveFile('dga-upload-template.csv', rows.map(r=>r.join(',')).join('\n'), 'text/csv');
+};
+
+/* ---------- AI (Claude via the artifact sample capability) ---------- */
+let samplePromise=null;
+function getSample(){ if(!samplePromise) samplePromise = (window.claude?.use ? window.claude.use('sample') : Promise.resolve(null)).catch(()=>null); return samplePromise; }
+let aiBlocked=false;
+function aiError(e){
+  const c=e?.code;
+  if (['not_granted','sampling_disabled','not_declared','capability_disabled','capability_removed'].includes(c)){ aiBlocked=true; return 'Claude is not available for this view. The rule-based analysis above still works.'; }
+  if (c==='rate_limited') return 'Too many requests right now. Wait a minute and try again.';
+  if (c==='session_expired') return 'Your session expired. Sign in again to use Claude.';
+  if (c==='prompt_too_large') return 'Too much data for one request. Try a smaller file or fewer units.';
+  if (c==='invalid_json') return 'Claude could not return the data in a usable form. Try again, or upload the table as Excel/CSV.';
+  if (c==='cancelled') return '';
+  return 'Claude could not finish this request. Try again.';
+}
+function md(text){
+  const lines=esc(text).split('\n'); let html='', inList=false;
+  const inline=s=>s.replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/`(.+?)`/g,'<code>$1</code>');
+  for (const ln of lines){
+    const t=ln.trim();
+    if (/^#{1,4}\s/.test(t)){ if(inList){html+='</ul>';inList=false;} html+=`<h4>${inline(t.replace(/^#+\s*/,''))}</h4>`; }
+    else if (/^([-*•]|\d+[.)])\s+/.test(t)){ if(!inList){html+='<ul>';inList=true;} html+=`<li>${inline(t.replace(/^([-*•]|\d+[.)])\s+/,''))}</li>`; }
+    else if (!t){ if(inList){html+='</ul>';inList=false;} }
+    else { if(inList){html+='</ul>';inList=false;} html+=`<p>${inline(t)}</p>`; }
+  }
+  if(inList) html+='</ul>'; return html;
+}
+function unitBrief(r, full){
+  const hist = r.samples.slice(full?-12:-3).map(s=>`${isoDate(s.date)}: `+[...GASES,'O2','N2'].map(g=>`${g}=${s[g]??'na'}`).join(' ')).join('\n');
+  return `Unit ${r.id}${r.unit.location?` (${r.unit.location})`:''}; MVA ${r.unit.mva??'na'}; kV ${r.unit.kv??'na'}; age ${r.age??'na'}; criticality ${r.unit.criticality??'na (default 3)'}
+Rank ${r.rank}/${state.results.length}; priority ${r.priority} ${PRIORITY[r.priority].label}; score ${r.score}; health ${r.health}; condition ${r.cond}; trend ${r.trend}; risk ${r.risk}
+DGA status ${r.status}/3; TDCG ${Math.round(r.tdcg)} ppm (cond ${r.tdcgCond}); Duval ${r.duval?.zone??'na'}; IEC ratio code ${r.iec.code}; key gas: ${r.keyGas.text}; paper: ${r.paper?.text??'na'}; O2/N2 ${r.o2n2?.toFixed(2)??'na'}; limits ${r.limKind}
+Rates ppm/yr: ${GASES.map(g=>`${g} ${r.gas[g].rate==null?'na':r.gas[g].rate.toFixed(1)}`).join(', ')}
+Findings: ${r.findings.map(f=>f.text).join('; ')}
+Samples:
+${hist}`;
+}
+async function streamTo(outEl, stopBtn, prompt, opts={}){
+  const sample=await getSample();
+  if (!sample || aiBlocked){ outEl.classList.remove('placeholder'); outEl.innerHTML='<p>AI assessment needs this page to be opened in Claude. The rule-based diagnosis above is complete without it.</p>'; return; }
+  const ctl=new AbortController(); stopBtn.hidden=false; stopBtn.onclick=()=>ctl.abort();
+  outEl.classList.remove('placeholder'); outEl.innerHTML='<p class="muted">Thinking…</p>';
+  try{
+    const {text,truncated}=await sample(prompt,{signal:ctl.signal,onText:({text})=>{ outEl.innerHTML=md(text); },...opts});
+    outEl.innerHTML=md(text)+(truncated?'<p class="note">The answer was cut short.</p>':'')+'<p class="note">Generated by Claude from the computed results. Verify before acting.</p>';
+  }catch(e){ const msg=aiError(e); outEl.innerHTML=(e.text?md(e.text):'')+(msg?`<p class="note">${esc(msg)}</p>`:''); }
+  finally{ stopBtn.hidden=true; }
+}
+function runUnitAI(r){
+  const prompt=`You are a senior transformer diagnostics engineer. Review this dissolved gas analysis (DGA) result and the rule-based screening below (IEEE C57.104-2019 status approach, Duval Triangle 1, IEC 60599 ratios, key gas, CO2/CO).
+Write a concise engineering assessment for a maintenance planner, using these headings exactly:
+## Diagnosis
+## Likely root causes
+## Risk if untreated
+## Recommended actions (with timeframes)
+## Confidence and data gaps
+Use short bullet points, cite the gas values and rates that drive each conclusion, say whether you agree with the assigned priority and why. Do not invent test results that are not given. Units are ppm.
+
+${unitBrief(r,true)}`;
+  streamTo($('#unit-out'), $('#btn-unit-stop'), prompt);
+}
+function fleetPrompt(question){
+  const R=state.results;
+  const table=R.map(r=>`${r.rank}. ${r.id} | ${r.priority} | score ${r.score} | health ${r.health} | status ${r.status} | ${r.faultName}${r.fault?` (${r.fault})`:''} | TDCG ${Math.round(r.tdcg)} | fastest rise: ${(()=>{const t=GASES.map(g=>({g,q:(r.gas[g].rate??0)/LIMITS.rate[g],x:r.gas[g]})).sort((a,b)=>b.q-a.q)[0];return t&&t.q>=1?`${t.g} ${t.x.rate.toFixed(1)} ppm/yr`:'stable';})()} | MVA ${r.unit.mva??'na'} | age ${r.age??'na'} | crit ${r.unit.criticality??'na'}`).join('\n');
+  const detail=R.filter(r=>r.priority==='P1'||r.priority==='P2').slice(0,8).map(r=>unitBrief(r,false)).join('\n\n');
+  const base=`You are a senior transformer asset-management engineer. Below is a fleet DGA screening (IEEE C57.104-2019 status approach, Duval Triangle 1, IEC 60599 ratios, key gas, CO2/CO) with a priority ranking. Units in ppm.
+
+FLEET RANKING
+${table}
+
+DETAIL FOR HIGHEST-PRIORITY UNITS
+${detail}`;
+  if (question) return `${base}\n\nAnswer this question from the maintenance team, briefly and specifically, citing unit IDs and values. Use short bullets. If the data cannot answer it, say what is missing.\nQuestion: ${question}`;
+  return `${base}\n\nWrite a fleet maintenance briefing for the asset manager, using these headings exactly:\n## Fleet overview\n## Units needing immediate action\n## Developing problems to watch\n## Suggested maintenance sequence (next 90 days)\n## Data quality notes\nKeep it under 400 words, use bullets, cite unit IDs and the values that justify each point. Say if you would change any assigned priority and why.`;
+}
+$('#btn-fleet-ai').onclick=()=>streamTo($('#fleet-out'),$('#btn-fleet-stop'),fleetPrompt());
+$('#btn-fleet-ask').onclick=()=>{ const q=$('#fleet-q').value.trim(); if(q) streamTo($('#fleet-out'),$('#btn-fleet-stop'),fleetPrompt(q),{cache:false}); };
+$('#fleet-q').onkeydown=e=>{ if(e.key==='Enter') $('#btn-fleet-ask').click(); };
+
+async function aiExtract(text, name, images){
+  const sample=await getSample();
+  if (!sample || aiBlocked){ log(`${name}: reading unstructured documents needs this page to be opened in Claude. Upload the results as Excel or CSV instead.`,true); return; }
+  log(`${name}: Claude is reading the document…`);
+  const prompt=`Extract every dissolved gas analysis (DGA) sample from this transformer oil lab report${images?' (see the attached image)':''}.
+Reply with only a JSON array. One object per sample:
+{"transformer_id": string, "location": string|null, "sample_date": "YYYY-MM-DD"|null, "H2": number|null, "CH4": number|null, "C2H6": number|null, "C2H4": number|null, "C2H2": number|null, "CO": number|null, "CO2": number|null, "O2": number|null, "N2": number|null, "mva": number|null, "kv": number|null, "year_built": number|null}
+Rules: gas values in ppm (convert µL/L to ppm 1:1; convert percent by ×10000). "Not detected", "ND" or "<x" → 0 or x/2. Use the serial number or equipment name as transformer_id. Include historical samples if the report lists them. If there are no DGA results, reply [].
+${text?`\nREPORT TEXT:\n${text.slice(0,120000)}`:''}`;
+  try{
+    const arr=await sample.json(prompt, images?{images}:{modelTier:'default'});
+    if (!Array.isArray(arr)||!arr.length){ log(`${name}: no DGA results found in the document.`,true); return; }
+    const samples=arr.map((o,i)=>({id:String(o.transformer_id||'Unit 1').trim(),location:o.location||null,date:parseDate(o.sample_date)||new Date(2000,0,1+i),
+      H2:parseNum(o.H2),CH4:parseNum(o.CH4),C2H6:parseNum(o.C2H6),C2H4:parseNum(o.C2H4),C2H2:parseNum(o.C2H2),CO:parseNum(o.CO),CO2:parseNum(o.CO2),O2:parseNum(o.O2),N2:parseNum(o.N2),
+      mva:parseNum(o.mva),kv:parseNum(o.kv),year:parseNum(o.year_built),age:null,criticality:null}))
+      .filter(s=>GASES.filter(g=>s[g]!=null).length>=3);
+    if(!samples.length){ log(`${name}: Claude found no samples with at least three gas values.`,true); return; }
+    const n=mergeSamples(samples,name); log(`${name}: Claude extracted ${n} samples for ${new Set(samples.map(s=>s.id)).size} transformers. Spot-check the values in the unit view.`); recompute(); toast(`Extracted ${n} samples`);
+  }catch(e){ log(`${name}: ${aiError(e)||'cancelled'}`,true); }
+}
+
+recompute();
+</script>
