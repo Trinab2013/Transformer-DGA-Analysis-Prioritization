@@ -118,6 +118,10 @@ th.r,td.r{text-align:right}
 .repair-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr);gap:18px}
 @media (max-width:760px){.repair-cols{grid-template-columns:1fr}}
 .repair ul,.repair ol{margin:0;padding-left:20px;display:grid;gap:5px;font-size:.9rem}
+.mv{font-family:var(--font-mono);font-size:.68rem;font-weight:700;white-space:nowrap}
+.mv.new{background:var(--accent);color:var(--accent-ink);border-radius:4px;padding:0 4px}
+.mv.up{color:var(--critical)} .mv.down{color:var(--muted)}
+tr.row.isnew td{box-shadow:inset 0 1px 0 var(--accent),inset 0 -1px 0 var(--accent)}
 .chip{display:inline-block;border:1px solid var(--line);border-radius:6px;padding:1px 6px;font-family:var(--font-mono);font-size:.72rem;background:var(--surface-2)}
 .st{font-family:var(--font-mono);font-size:.74rem;font-weight:600}
 .st b{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;vertical-align:0}
@@ -623,12 +627,12 @@ const EXAMPLE = [
     ['2025-04-07',8,3,2,1,0,120,900,1100,49000],['2026-04-06',10,4,2,1,0,150,1100,1150,49000]]]
 ];
 function exampleUnits(){
-  return EXAMPLE.map(([id,location,mva,kv,year,criticality,ss])=>({id,location,mva,kv,year,criticality,
+  return EXAMPLE.map(([id,location,mva,kv,year,criticality,ss])=>({id,location,mva,kv,year,criticality,example:true,
     samples:ss.map(s=>({date:new Date(s[0]+'T00:00:00'),H2:s[1],CH4:s[2],C2H6:s[3],C2H4:s[4],C2H2:s[5],CO:s[6],CO2:s[7],O2:s[8],N2:s[9]}))}));
 }
 
 /* ---------- State ---------- */
-const state = { tierFilter:0, units: exampleUnits(), isExample:true, results:[], selected:null, sources:[], asOf:new Date(), hidden:new Set(['CO','CO2']) };
+const state = { tierFilter:0, prevRanks:null, newIds:new Set(), units: exampleUnits(), isExample:true, results:[], selected:null, sources:[], asOf:new Date(), hidden:new Set(['CO','CO2']) };
 
 /* ---------- Helpers ---------- */
 const $ = s => document.querySelector(s);
@@ -643,8 +647,9 @@ function pill(p){ return `<span class="pill ${p}"><i aria-hidden="true">${PRIORI
 const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 /* ---------- Render ---------- */
-function recompute(){
+function recompute(selectId){
   state.results = analyzeFleet(state.units, state.asOf);
+  if (selectId) state.selected = selectId;
   if (!state.results.find(r=>r.id===state.selected)) state.selected = state.results[0]?.id ?? null;
   renderAll();
 }
@@ -654,10 +659,15 @@ function renderSource(){
   const n = state.units.reduce((a,u)=>a+u.samples.length,0);
   const bar = $('#source-bar');
   if (state.isExample){
-    bar.innerHTML = `<span><strong>Example fleet</strong> · ${state.units.length} illustrative transformers, ${n} samples. Upload Excel, CSV, PDF, Word or a photo of a lab report to analyze your own units.</span><span class="sp"></span><span class="note">Or drop files anywhere on this page</span>`;
+    bar.innerHTML = `<span><strong>Example fleet</strong> · ${state.units.length} illustrative transformers, ${n} samples. Upload Excel, CSV, PDF, Word or a photo of a lab report: new units join this fleet so you can see how the ranking shifts, and you can then remove the examples.</span><span class="sp"></span><span class="note">Or drop files anywhere on this page</span>`;
+  } else if (state.units.some(u=>u.example)){
+    const ex=state.units.filter(u=>u.example).length, mine=state.units.length-ex;
+    bar.innerHTML = `<span><strong>Example fleet + your uploads</strong> · ${ex} example and ${mine} uploaded transformer${mine===1?'':'s'} from ${esc(state.sources.slice(-3).join(', '))}. Arrows in the ranking show how each unit moved.</span><span class="sp"></span><button class="btn" id="btn-drop-ex" type="button">Remove example units</button><button class="btn" id="btn-clear" type="button">Undo uploads</button>`;
+    $('#btn-drop-ex').onclick = ()=>{ state.units=state.units.filter(u=>!u.example); state.prevRanks=null; state.newIds.clear(); recompute(); };
+    $('#btn-clear').onclick = ()=>{ state.units=exampleUnits(); state.isExample=true; state.sources=[]; state.prevRanks=null; state.newIds.clear(); recompute(); };
   } else {
     bar.innerHTML = `<span><strong>Your data</strong> · ${state.units.length} transformers, ${n} samples from ${state.sources.length} source${state.sources.length===1?'':'s'}: ${esc(state.sources.slice(-3).join(', '))}${state.sources.length>3?'…':''}</span><span class="sp"></span><button class="btn" id="btn-clear" type="button">Clear and show example</button>`;
-    $('#btn-clear').onclick = ()=>{ state.units=exampleUnits(); state.isExample=true; state.sources=[]; recompute(); };
+    $('#btn-clear').onclick = ()=>{ state.units=exampleUnits(); state.isExample=true; state.sources=[]; state.prevRanks=null; state.newIds.clear(); recompute(); };
   }
 }
 function renderKpis(){
@@ -680,13 +690,19 @@ function trendCell(r){
   if (!top || top.q<1) return `<span class="trend-flat">Stable</span>`;
   return `<span class="trend-up">↑ ${GAS_LABEL[top.g]}</span> <span class="sub">${fmt(top.x.rate)}/yr</span>`;
 }
+function moveTag(r){
+  if (!state.prevRanks) return '';
+  if (state.newIds.has(r.id)) return '<div><span class="mv new">NEW</span></div>';
+  const was=state.prevRanks[r.id]; if (was==null || was===r.rank) return '';
+  return was>r.rank ? `<div><span class="mv up" title="Was #${was}">↑${was-r.rank}</span></div>` : `<div><span class="mv down" title="Was #${was}">↓${r.rank-was}</span></div>`;
+}
 function renderTable(){
   const R = state.results.filter(r=>!state.tierFilter || r.tier===state.tierFilter);
   $('#tier-filter').innerHTML = [0,1,2,3].map(n=>`<button type="button" data-t="${n}" aria-pressed="${(state.tierFilter||0)===n}">${n?`Tier ${n} · ${TIERS[n].short} (${state.results.filter(r=>r.tier===n).length})`:`All (${state.results.length})`}</button>`).join('');
   document.querySelectorAll('#tier-filter button').forEach(b=>b.onclick=()=>{ state.tierFilter=+b.dataset.t||0; renderTable(); });
   $('#rank-table').innerHTML = `<thead><tr><th class="r">#</th><th>Transformer</th><th>Tier</th><th>Priority</th><th>Score</th><th class="r">Health</th><th>Fault · repair</th><th>Status</th><th class="r">TDCG</th><th>Trend</th><th>Last sample</th></tr></thead><tbody>${
-    R.map(r=>`<tr class="row${r.id===state.selected?' sel':''}" data-id="${esc(r.id)}" tabindex="0">
-      <td class="r num">${r.rank}</td>
+    R.map(r=>`<tr class="row${r.id===state.selected?' sel':''}${state.prevRanks&&state.newIds.has(r.id)?' isnew':''}" data-id="${esc(r.id)}" tabindex="0">
+      <td class="r num">${r.rank}${moveTag(r)}</td>
       <td><div class="uid">${esc(r.id)}</div><div class="sub">${esc(r.unit.location||'')}${r.unit.mva?` · ${fmt(r.unit.mva)} MVA`:''}</div></td>
       <td>${tierBadge(r.tier)}</td>
       <td>${pill(r.priority)}</td>
@@ -722,7 +738,7 @@ function renderMatrix(){
   const pts = state.results.slice().sort((a,b)=>order[a.priority]-order[b.priority]);
   for (const r of pts){
     const cx = X(clamp(0.7*r.cond+0.3*r.trend,0,100)), cy=Y(r.risk); const sel=r.id===state.selected;
-    g+=`<g class="pt" data-id="${esc(r.id)}" style="cursor:pointer"><circle cx="${cx}" cy="${cy}" r="16" fill="transparent"/><circle cx="${cx}" cy="${cy}" r="${sel?8:6.5}" fill="var(--${PRIORITY[r.priority].tone})" stroke="var(--surface)" stroke-width="2"/>${sel?`<circle cx="${cx}" cy="${cy}" r="12" fill="none" stroke="var(--ink)" stroke-width="1.5"/>`:''}${(r.priority==='P1'||sel)?`<text x="${cx+11}" y="${cy-9}" style="fill:var(--ink);font-weight:600">${esc(r.id)}</text>`:''}</g>`;
+    g+=`<g class="pt" data-id="${esc(r.id)}" style="cursor:pointer"><circle cx="${cx}" cy="${cy}" r="16" fill="transparent"/><circle cx="${cx}" cy="${cy}" r="${sel?8:6.5}" fill="var(--${PRIORITY[r.priority].tone})" stroke="var(--surface)" stroke-width="2"/>${sel?`<circle cx="${cx}" cy="${cy}" r="12" fill="none" stroke="var(--ink)" stroke-width="1.5"/>`:''}${(r.priority==='P1'||sel)?`<text x="${cx>W-80?cx-11:cx+11}" y="${cy-9}" text-anchor="${cx>W-80?'end':'start'}" style="fill:var(--ink);font-weight:600">${esc(r.id)}</text>`:''}</g>`;
   }
   $('#matrix').innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Scatter of condition score against risk score for each transformer">${g}</svg>`;
   $('#matrix-legend').innerHTML = ['P1','P2','P3','P4'].map(p=>`<span><b style="background:var(--${PRIORITY[p].tone})"></b>${PRIORITY[p].icon} ${p} ${PRIORITY[p].label}</span>`).join('');
@@ -957,10 +973,11 @@ function rowsToSamples(rows, map){
   return {samples:out, synth};
 }
 function mergeSamples(samples, sourceName){
-  if (state.isExample){ state.units=[]; state.isExample=false; state.sources=[]; }
+  state.prevRanks = Object.fromEntries(state.results.map(r=>[r.id,r.rank]));
+  if (state.isExample){ state.isExample=false; state.sources=[]; }
   const byId=new Map(state.units.map(u=>[u.id,u])); let added=0;
   for (const s of samples){
-    let u=byId.get(s.id); if(!u){ u={id:s.id,samples:[]}; byId.set(s.id,u); state.units.push(u); }
+    let u=byId.get(s.id); if(!u){ u={id:s.id,samples:[]}; byId.set(s.id,u); state.units.push(u); state.newIds.add(s.id); }
     for (const k of ['location','mva','kv','year','age','criticality']) if (s[k]!=null && s[k]!=='') u[k]=s[k];
     const smp={date:s.date}; for (const g of [...GASES,'O2','N2']) smp[g]=s[g];
     const dup=u.samples.findIndex(x=>+x.date===+smp.date); if(dup>=0) u.samples[dup]=smp; else u.samples.push(smp); added++;
@@ -993,7 +1010,7 @@ $('#btn-map-apply').onclick=()=>{
   const map={}; document.querySelectorAll('#map-grid select').forEach(s=>{ if(s.value!=='') map[s.dataset.k]=+s.value; });
   const {samples,synth}=rowsToSamples(mapCurrent.body,map);
   if (!samples.length){ log(`${mapCurrent.name}: no rows with at least three gas values.`,true); }
-  else { const n=mergeSamples(samples,mapCurrent.name); log(`${mapCurrent.name}: imported ${n} samples for ${new Set(samples.map(s=>s.id)).size} transformers.${synth?` ${synth} rows had no date; row order was used for the trend.`:''}${map.id==null?' No ID column: all rows treated as one unit.':''}`); recompute(); toast(`Imported ${n} samples`); }
+  else { const n=mergeSamples(samples,mapCurrent.name); log(`${mapCurrent.name}: imported ${n} samples for ${new Set(samples.map(s=>s.id)).size} transformers.${synth?` ${synth} rows had no date; row order was used for the trend.`:''}${map.id==null?' No ID column: all rows treated as one unit.':''}`); recompute([...state.newIds].pop()); toast(`Imported ${n} samples`); }
   nextMap();
 };
 $('#btn-map-cancel').onclick=()=>nextMap();
@@ -1163,18 +1180,18 @@ async function aiExtract(text, name, images){
   log(`${name}: Claude is reading the document…`);
   const prompt=`Extract every dissolved gas analysis (DGA) sample from this transformer oil lab report${images?' (see the attached image)':''}.
 Reply with only a JSON array. One object per sample:
-{"transformer_id": string, "location": string|null, "sample_date": "YYYY-MM-DD"|null, "H2": number|null, "CH4": number|null, "C2H6": number|null, "C2H4": number|null, "C2H2": number|null, "CO": number|null, "CO2": number|null, "O2": number|null, "N2": number|null, "mva": number|null, "kv": number|null, "year_built": number|null}
-Rules: gas values in ppm (convert µL/L to ppm 1:1; convert percent by ×10000). "Not detected", "ND" or "<x" → 0 or x/2. Use the serial number or equipment name as transformer_id. Include historical samples if the report lists them. If there are no DGA results, reply [].
+{"transformer_id": string, "location": string|null, "sample_date": "YYYY-MM-DD"|null, "H2": number|null, "CH4": number|null, "C2H6": number|null, "C2H4": number|null, "C2H2": number|null, "CO": number|null, "CO2": number|null, "O2": number|null, "N2": number|null, "mva": number|null, "kv": number|null, "year_built": number|null, "criticality": number|null}
+Rules: gas values in ppm (convert µL/L to ppm 1:1; convert percent by ×10000). "Not detected", "ND" or "<x" → 0 or x/2. Use the equipment ID or name as transformer_id (not the lab sample ID). criticality is the 1–5 importance rating if the report gives one. Include historical samples if the report lists them. If there are no DGA results, reply [].
 ${text?`\nREPORT TEXT:\n${text.slice(0,120000)}`:''}`;
   try{
     const arr=await sample.json(prompt, images?{images}:{modelTier:'default'});
     if (!Array.isArray(arr)||!arr.length){ log(`${name}: no DGA results found in the document.`,true); return; }
     const samples=arr.map((o,i)=>({id:String(o.transformer_id||'Unit 1').trim(),location:o.location||null,date:parseDate(o.sample_date)||new Date(2000,0,1+i),
       H2:parseNum(o.H2),CH4:parseNum(o.CH4),C2H6:parseNum(o.C2H6),C2H4:parseNum(o.C2H4),C2H2:parseNum(o.C2H2),CO:parseNum(o.CO),CO2:parseNum(o.CO2),O2:parseNum(o.O2),N2:parseNum(o.N2),
-      mva:parseNum(o.mva),kv:parseNum(o.kv),year:parseNum(o.year_built),age:null,criticality:null}))
+      mva:parseNum(o.mva),kv:parseNum(o.kv),year:parseNum(o.year_built),age:null,criticality:parseNum(o.criticality)}))
       .filter(s=>GASES.filter(g=>s[g]!=null).length>=3);
     if(!samples.length){ log(`${name}: Claude found no samples with at least three gas values.`,true); return; }
-    const n=mergeSamples(samples,name); log(`${name}: Claude extracted ${n} samples for ${new Set(samples.map(s=>s.id)).size} transformers. Spot-check the values in the unit view.`); recompute(); toast(`Extracted ${n} samples`);
+    const n=mergeSamples(samples,name); log(`${name}: Claude extracted ${n} samples for ${new Set(samples.map(s=>s.id)).size} transformers. Spot-check the values in the unit view.`); recompute([...state.newIds].pop()); toast(`Extracted ${n} samples`);
   }catch(e){ log(`${name}: ${aiError(e)||'cancelled'}`,true); }
 }
 
